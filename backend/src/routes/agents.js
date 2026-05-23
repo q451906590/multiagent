@@ -55,6 +55,8 @@ function publicAgent(a) {
     agentsMdResolved: buildAgentProfileMarkdown(a),
     model: a.model,
     hostMountPath: a.hostMountPath || '',
+    sourceTemplateId: a.sourceTemplateId || '',
+    sourceTemplateVersion: a.sourceTemplateVersion || '',
     createdAt: a.createdAt,
     messages: [],
     delegationEligible: hasActiveDelegationKeyForAgent(a.id),

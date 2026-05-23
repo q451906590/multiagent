@@ -4,23 +4,18 @@ import vue from '@vitejs/plugin-vue'
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
-  const backendHost = (
-    process.env.VITE_BACKEND_HOST ||
-    env.VITE_BACKEND_HOST ||
-    'localhost'
-  ).trim() || 'localhost'
-  const backendPort = Number(
-    process.env.VITE_BACKEND_PORT ||
-    env.VITE_BACKEND_PORT ||
-    8080
-  ) || 8080
+  const apiTarget = (
+    process.env.VITE_API_TARGET ||
+    env.VITE_API_TARGET ||
+    'http://10.13.246.56:8080'
+  ).trim() || 'http://10.13.246.56:8080'
 
   return {
     plugins: [vue()],
     server: {
       proxy: {
         '/api': {
-          target: `http://${backendHost}:${backendPort}`,
+          target: apiTarget,
           changeOrigin: true,
         },
       },

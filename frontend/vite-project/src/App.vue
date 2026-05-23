@@ -5,6 +5,8 @@ import AgentChat from './components/AgentChat.vue'
 import AgentExtensions from './components/AgentExtensions.vue'
 import DelegationKeyManager from './components/DelegationKeyManager.vue'
 import LoginPanel from './components/LoginPanel.vue'
+import MarketplaceBrowse from './components/MarketplaceBrowse.vue'
+import MarketplaceListingDetail from './components/MarketplaceListingDetail.vue'
 import { useAgents } from './composables/useAgents.js'
 import { useAuth } from './composables/useAuth.js'
 
@@ -47,6 +49,18 @@ function openExtensions(agentId) {
 
 function openDelegations(agentId) {
   view.value = { name: 'delegations', agentId }
+}
+
+function openMarketplace() {
+  view.value = { name: 'marketplace' }
+}
+
+function openMarketplaceDetail(templateId) {
+  view.value = { name: 'marketplaceDetail', templateId }
+}
+
+function backToMarketplace() {
+  view.value = { name: 'marketplace' }
 }
 
 function onLogout() {
@@ -262,6 +276,17 @@ function getFloatingStyle(item) {
       @open-floating="openFloatingChatFromList"
       @manage-extensions="openExtensions"
       @manage-delegations="openDelegations"
+      @open-marketplace="openMarketplace"
+    />
+    <MarketplaceBrowse
+      v-if="view.name === 'marketplace'"
+      @back="backToList"
+      @open-detail="openMarketplaceDetail"
+    />
+    <MarketplaceListingDetail
+      v-if="view.name === 'marketplaceDetail'"
+      :template-id="view.templateId"
+      @back="backToMarketplace"
     />
     <div
       v-if="view.name === 'chat' && activeAgent"

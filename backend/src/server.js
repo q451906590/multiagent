@@ -11,6 +11,7 @@ import filesRouter from './routes/files.js'
 import delegationsRouter from './routes/delegations.js'
 import authRouter from './routes/auth.js'
 import { authUser } from './middlewares/authUser.js'
+import marketplaceRouter from './routes/marketplace.js'
 
 const app = express()
 
@@ -26,6 +27,7 @@ app.get('/api/health', (_req, res) => {
 })
 
 app.use('/api/auth', authRouter)
+app.use('/api/marketplace', marketplaceRouter)
 app.use('/api/agents', authUser, agentsRouter)
 app.use('/api/agents', authUser, chatRouter)
 app.use('/api/agents/:id/mcp', authUser, mcpRouter)

@@ -2,18 +2,22 @@
 import { ref, computed } from 'vue'
 import AgentCard from './AgentCard.vue'
 import AgentDialog from './AgentDialog.vue'
+import PublishListingDialog from './PublishListingDialog.vue'
 import { useAgents } from '../composables/useAgents.js'
+import { useMarketplace } from '../composables/useMarketplace.js'
 
 defineProps({
   agents: { type: Array, required: true },
 })
 
-const emit = defineEmits(['open', 'open-floating', 'manage-extensions', 'manage-delegations'])
+const emit = defineEmits(['open', 'open-floating', 'manage-extensions', 'manage-delegations', 'open-marketplace'])
 
 const { addAgent, editAgent, removeAgent, getAgent, state } = useAgents()
+const { publishAgent } = useMarketplace()
 
 const dialogMode = ref(null)
 const editingId = ref(null)
+const publishingAgent = ref(null)
 
 const dialogInitial = computed(() => {
   if (dialogMode.value !== 'edit' || !editingId.value) return null
@@ -77,6 +81,27 @@ function handleDelegations(id) {
   emit('manage-delegations', id)
 }
 
+function handleOpenMarketplace() {
+  emit('open-marketplace')
+}
+
+function handlePublish(agent) {
+  publishingAgent.value = agent || null
+}
+
+function closePublishDialog() {
+  publishingAgent.value = null
+}
+
+async function submitPublish(payload) {
+  try {
+    await publishAgent(payload)
+    closePublishDialog()
+    window.alert('发布成功，已同步到 Agent 市集。')
+  } catch (err) {
+    window.alert(`发布失败：${err?.message || err}`)
+  }
+}
 </script>
 
 <template>
@@ -90,6 +115,7 @@ function handleDelegations(id) {
         </div>
       </div>
       <div class="top-actions">
+        <button class="market-btn" @click="handleOpenMarketplace">Agent 市集</button>
         <div v-if="state.bootstrapping" class="status-pill">正在拉起 hermes 容器…</div>
         <div v-else-if="state.loading" class="status-pill">加载中…</div>
         <div v-else-if="combinedError" class="status-pill error">后端连接失败：{{ combinedError }}</div>
@@ -106,6 +132,7 @@ function handleDelegations(id) {
         @open-floating="handleOpenFloating"
         @manage="handleManage"
         @delegations="handleDelegations"
+        @publish="handlePublish"
         @edit="openEditDialog"
         @delete="handleDelete"
       />
@@ -118,6 +145,12 @@ function handleDelegations(id) {
       :initial-value="dialogInitial"
       @cancel="closeDialog"
       @submit="handleSubmit"
+    />
+    <PublishListingDialog
+      :open="Boolean(publishingAgent)"
+      :agent="publishingAgent"
+      @cancel="closePublishDialog"
+      @submit="submitPublish"
     />
   </section>
 </template>
@@ -145,6 +178,14 @@ function handleDelegations(id) {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.market-btn {
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  padding: 6px 12px;
+  font-size: 12px;
 }
 
 .brand {

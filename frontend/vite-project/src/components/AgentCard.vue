@@ -6,7 +6,7 @@ const props = defineProps({
   agent: { type: Object, default: null },
 })
 
-const emit = defineEmits(['open', 'open-floating', 'delete', 'add', 'edit', 'manage', 'delegations'])
+const emit = defineEmits(['open', 'open-floating', 'delete', 'add', 'edit', 'manage', 'delegations', 'publish'])
 
 const isAdd = computed(() => props.mode === 'add')
 const openHint = computed(() => '双击进入对话')
@@ -37,6 +37,10 @@ function onDelegations() {
 
 function onOpenFloating() {
   emit('open-floating', props.agent)
+}
+
+function onPublish() {
+  emit('publish', props.agent)
 }
 </script>
 
@@ -115,6 +119,18 @@ function onOpenFloating() {
             d="M4 4h16v16H4z M8 8h8v8H8z"
             stroke="currentColor"
             stroke-width="1.6"
+            fill="none"
+          />
+        </svg>
+      </button>
+      <button class="action-btn" title="发布到市集" @click.stop="onPublish">
+        <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+          <path
+            d="M12 4v10M8 8l4-4 4 4M5 16h14v4H5z"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
             fill="none"
           />
         </svg>
@@ -217,7 +233,7 @@ function onOpenFloating() {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding-right: 96px;
+  padding-right: 132px;
 }
 
 .avatar {

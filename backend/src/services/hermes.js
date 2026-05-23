@@ -163,7 +163,7 @@ export async function findContainer(name) {
   return d.getContainer(list[0].Id)
 }
 
-async function ensureContainerRunning(containerName) {
+export async function ensureContainerRunning(containerName) {
   const c = await findContainer(containerName)
   if (!c) {
     throw new Error(`container ${containerName} not found`)
@@ -173,6 +173,17 @@ async function ensureContainerRunning(containerName) {
     await c.start()
   }
   return c
+}
+
+export async function readArchiveFromContainer(containerName, pathInContainer) {
+  const c = await ensureContainerRunning(containerName)
+  const archiveStream = await c.getArchive({ path: pathInContainer })
+  return archiveToBuffer(archiveStream)
+}
+
+export async function writeArchiveToContainer(containerName, archiveBuffer, destPathInContainer) {
+  const c = await ensureContainerRunning(containerName)
+  await c.putArchive(archiveBuffer, { path: destPathInContainer })
 }
 
 function buildEnvArray() {
