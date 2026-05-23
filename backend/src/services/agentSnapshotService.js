@@ -37,24 +37,17 @@ export function parseEnvPairs(content) {
 
 export function sanitizeHermesEnv(content) {
   const pairs = parseEnvPairs(content)
-  const keep = []
-  const missing = []
+  const keys = []
   for (const pair of pairs) {
-    const key = pair.key.toUpperCase()
-    const looksSensitive =
-      key.includes('SECRET') ||
-      key.includes('TOKEN') ||
-      key.includes('PASSWORD') ||
-      key.endsWith('_API_KEY') ||
-      key.includes('PRIVATE_KEY')
-    if (looksSensitive) {
-      missing.push(pair.key)
-      continue
-    }
-    keep.push(`${pair.key}=${pair.value}`)
+    const key = String(pair.key || '').trim()
+    if (!key) continue
+    keys.push(key)
   }
-  const normalized = keep.length > 0 ? `${keep.join('\n')}\n` : ''
-  return { content: normalized, missingKeys: missing }
+  const uniqueKeys = [...new Set(keys)]
+  const normalized = uniqueKeys.length > 0
+    ? `${uniqueKeys.map((key) => `${key}=`).join('\n')}\n`
+    : ''
+  return { content: normalized, missingKeys: uniqueKeys }
 }
 
 export async function buildTemplateSnapshot(agentId) {
