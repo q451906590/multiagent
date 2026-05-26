@@ -86,6 +86,10 @@ function handleOpenMarketplace() {
 }
 
 function handlePublish(agent) {
+  if (agent?.sourceTemplateId) {
+    window.alert('该 Agent 来自市集，不能再次发布到市集。')
+    return
+  }
   publishingAgent.value = agent || null
 }
 

@@ -21,6 +21,7 @@ import { buildAgentProfileMarkdown } from './promptFile.js'
 import {
   buildTemplateSnapshot,
   cloneRuntimeDirsBetweenAgents,
+  sanitizeHermesEnv,
   writeSnapshotCoreFiles,
 } from './agentSnapshotService.js'
 import { logger } from '../utils/logger.js'
@@ -56,13 +57,21 @@ function templatePublicItem(template) {
 }
 
 function templatePublicDetail(template) {
+  const envSnapshot = sanitizeHermesEnv(template?.hermesEnvSanitized || '')
+  const storedMissingKeys = Array.isArray(template?.hermesMissingKeys)
+    ? template.hermesMissingKeys.map((item) => String(item || '').trim()).filter(Boolean)
+    : []
+  const mergedMissingKeys = [...new Set([...envSnapshot.missingKeys, ...storedMissingKeys])]
+  const normalizedEnvContent = mergedMissingKeys.length > 0
+    ? `${mergedMissingKeys.map((key) => `${key}=`).join('\n')}\n`
+    : ''
   return {
     ...templatePublicItem(template),
     systemPrompt: template.systemPrompt,
     agentsMd: template.agentsMd,
     hermesConfig: template.hermesConfig,
-    hermesEnvSanitized: template.hermesEnvSanitized,
-    hermesMissingKeys: template.hermesMissingKeys,
+    hermesEnvSanitized: normalizedEnvContent,
+    hermesMissingKeys: mergedMissingKeys,
     mcpList: template.mcpList,
     skillsList: template.skillsList,
   }
@@ -85,6 +94,11 @@ export async function publishFromAgent({ agentId, userId, title, description }) 
   if (!source) {
     const err = new Error('agent_not_found')
     err.status = 404
+    throw err
+  }
+  if (source.sourceTemplateId) {
+    const err = new Error('marketplace_import_cannot_republish')
+    err.status = 400
     throw err
   }
   const snapshot = await buildTemplateSnapshot(source.id)
@@ -194,11 +208,19 @@ export async function installTemplateToUser({ templateId, userId }) {
     fromAgentId: sourceAgent.id,
     toAgentId: newAgent.id,
   })
+  const envSnapshot = sanitizeHermesEnv(template?.hermesEnvSanitized || '')
+  const storedMissingKeys = Array.isArray(template?.hermesMissingKeys)
+    ? template.hermesMissingKeys.map((item) => String(item || '').trim()).filter(Boolean)
+    : []
+  const mergedMissingKeys = [...new Set([...envSnapshot.missingKeys, ...storedMissingKeys])]
+  const normalizedEnvContent = mergedMissingKeys.length > 0
+    ? `${mergedMissingKeys.map((key) => `${key}=`).join('\n')}\n`
+    : ''
   await writeSnapshotCoreFiles({
     toAgentId: newAgent.id,
     agentsMd: buildAgentProfileMarkdown(newAgent),
     hermesConfig: template.hermesConfig,
-    hermesEnvSanitized: template.hermesEnvSanitized,
+    hermesEnvSanitized: normalizedEnvContent,
   })
 
   insertAgentInstallation({
@@ -213,6 +235,6 @@ export async function installTemplateToUser({ templateId, userId }) {
   return {
     agentId: newAgent.id,
     templateId: template.id,
-    hermesMissingKeys: template.hermesMissingKeys,
+    hermesMissingKeys: mergedMissingKeys,
   }
 }

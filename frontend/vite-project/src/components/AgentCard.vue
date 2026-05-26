@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 const props = defineProps({
   mode: { type: String, default: 'agent' },
@@ -10,6 +10,30 @@ const emit = defineEmits(['open', 'open-floating', 'delete', 'add', 'edit', 'man
 
 const isAdd = computed(() => props.mode === 'add')
 const openHint = computed(() => '双击进入对话')
+const normalizedName = computed(() => String(props.agent?.name || '').trim())
+const normalizedRole = computed(() => String(props.agent?.role || '').trim())
+const normalizedPrompt = computed(() => String(props.agent?.systemPrompt || '').trim())
+const displayRole = computed(() => {
+  if (!normalizedRole.value) return ''
+  if (normalizedRole.value === normalizedName.value) return ''
+  return normalizedRole.value
+})
+const displayPrompt = computed(() => {
+  if (!normalizedPrompt.value) return ''
+  if (normalizedPrompt.value === normalizedName.value) return ''
+  if (normalizedPrompt.value === normalizedRole.value) return ''
+  return normalizedPrompt.value
+})
+const showPromptPlaceholder = computed(() => !normalizedPrompt.value)
+const isMarketplaceImported = computed(() => Boolean(props.agent?.sourceTemplateId))
+const marketplaceHint = computed(() => {
+  if (!isMarketplaceImported.value) return ''
+  const version = String(props.agent?.sourceTemplateVersion || '').trim()
+  if (!version) return '该 Agent 从市集引入'
+  return `该 Agent 从市集引入（模板版本：${version}）`
+})
+const cardEl = ref(null)
+const showMore = ref(false)
 
 function onDblClick() {
   if (!isAdd.value) emit('open', props.agent)
@@ -42,6 +66,46 @@ function onOpenFloating() {
 function onPublish() {
   emit('publish', props.agent)
 }
+
+function toggleMore() {
+  showMore.value = !showMore.value
+}
+
+function closeMore() {
+  showMore.value = false
+}
+
+function onDocumentClick(event) {
+  if (!showMore.value) return
+  const root = cardEl.value
+  if (!root) return
+  const target = event.target instanceof Node ? event.target : null
+  if (target && !root.contains(target)) {
+    closeMore()
+  }
+}
+
+function withClose(fn) {
+  return () => {
+    fn()
+    closeMore()
+  }
+}
+
+const onManageWithClose = withClose(onManage)
+const onDelegationsWithClose = withClose(onDelegations)
+const onEditWithClose = withClose(onEdit)
+const onOpenFloatingWithClose = withClose(onOpenFloating)
+const onPublishWithClose = withClose(onPublish)
+const onDeleteWithClose = withClose(onDelete)
+
+onMounted(() => {
+  document.addEventListener('click', onDocumentClick)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', onDocumentClick)
+})
 </script>
 
 <template>
@@ -69,6 +133,7 @@ function onPublish() {
 
   <div
     v-else
+    ref="cardEl"
     class="card card-agent"
     role="button"
     tabindex="0"
@@ -77,74 +142,28 @@ function onPublish() {
     @keydown.enter.prevent="onDblClick"
   >
     <div class="card-actions">
-      <button class="action-btn" title="扩展管理" @click.stop="onManage">
-        <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-          <path
-            d="M10 3h4l1 2 2 1v4l-2 1-1 2h-4l-1-2-2-1V6l2-1 1-2z M12 8.5a2.5 2.5 0 100 5 2.5 2.5 0 000-5z"
-            stroke="currentColor"
-            stroke-width="1.8"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            fill="none"
-          />
-        </svg>
-      </button>
-      <button class="action-btn" title="外派 AK 管理" @click.stop="onDelegations">
-        <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-          <path
-            d="M7 11a4 4 0 1 1 7.8 1.2L21 18.4 18.4 21l-6.2-6.2A4 4 0 0 1 7 11z M11 9.5v3"
-            stroke="currentColor"
-            stroke-width="1.7"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            fill="none"
-          />
-        </svg>
-      </button>
-      <button class="action-btn" title="编辑" @click.stop="onEdit">
-        <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-          <path
-            d="M4 20h4l10-10-4-4L4 16v4z M14 6l4 4"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            fill="none"
-          />
-        </svg>
-      </button>
-      <button class="action-btn" title="打开小窗口" @click.stop="onOpenFloating">
-        <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-          <path
-            d="M4 4h16v16H4z M8 8h8v8H8z"
-            stroke="currentColor"
-            stroke-width="1.6"
-            fill="none"
-          />
-        </svg>
-      </button>
-      <button class="action-btn" title="发布到市集" @click.stop="onPublish">
-        <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-          <path
-            d="M12 4v10M8 8l4-4 4 4M5 16h14v4H5z"
-            stroke="currentColor"
-            stroke-width="1.8"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            fill="none"
-          />
-        </svg>
-      </button>
-      <button class="action-btn delete-btn" title="删除" @click.stop="onDelete">
-        <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-          <path
-            d="M6 6l12 12M18 6L6 18"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-          />
-        </svg>
-      </button>
+      <button class="more-btn" title="更多操作" @click.stop="toggleMore">...</button>
+      <div v-if="showMore" class="more-menu" @click.stop>
+        <button class="menu-item" @click.stop="onManageWithClose">扩展管理</button>
+        <button class="menu-item" @click.stop="onDelegationsWithClose">外派 AK 管理</button>
+        <button class="menu-item" @click.stop="onEditWithClose">编辑</button>
+        <button class="menu-item" @click.stop="onOpenFloatingWithClose">打开小窗口</button>
+        <button
+          v-if="!isMarketplaceImported"
+          class="menu-item"
+          @click.stop="onPublishWithClose"
+        >
+          发布到市集
+        </button>
+        <div
+          v-else
+          class="menu-note"
+          title="市集引入的 Agent 不支持再次发布到市集"
+        >
+          已从市集引入，不可再发布
+        </div>
+        <button class="menu-item danger" @click.stop="onDeleteWithClose">删除</button>
+      </div>
     </div>
 
     <div class="card-head">
@@ -152,15 +171,28 @@ function onPublish() {
       <div class="head-text">
         <div class="name-row">
           <div class="name">{{ agent.name }}</div>
+        </div>
+        <div
+          v-if="isMarketplaceImported || agent.delegationEligible"
+          class="meta-row"
+        >
+          <span
+            v-if="isMarketplaceImported"
+            class="source-badge marketplace"
+            :title="marketplaceHint"
+          >
+            市集引入
+          </span>
           <span v-if="agent.delegationEligible" class="source-badge" title="可用于外派调用">
             可外派
           </span>
         </div>
-        <div v-if="agent.role" class="role">{{ agent.role }}</div>
+        <div v-if="displayRole" class="role">{{ displayRole }}</div>
       </div>
     </div>
 
-    <div class="prompt">{{ agent.systemPrompt || '（未填写 system prompt）' }}</div>
+    <div v-if="displayPrompt" class="prompt">{{ displayPrompt }}</div>
+    <div v-else-if="showPromptPlaceholder" class="prompt prompt-empty">（未填写 system prompt）</div>
 
     <div class="card-foot">
       <span class="model-tag">{{ agent.model }}</span>
@@ -196,44 +228,71 @@ function onPublish() {
   position: absolute;
   top: 10px;
   right: 10px;
-  display: inline-flex;
-  gap: 4px;
-  opacity: 0;
-  transition: opacity 0.18s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
 }
 
-.card-agent:hover .card-actions,
-.card-agent:focus-within .card-actions {
-  opacity: 1;
-}
-
-.action-btn {
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  background: transparent;
+.more-btn {
+  min-width: 28px;
+  height: 24px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
   color: var(--color-text-muted);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.18s ease, color 0.18s ease;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 8px 3px;
 }
 
-.action-btn:hover {
+.more-btn:hover {
+  color: var(--color-text);
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-soft);
+}
+
+.more-menu {
+  min-width: 130px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-md);
+  padding: 4px;
+  display: grid;
+  gap: 2px;
+}
+
+.menu-item {
+  text-align: left;
+  border-radius: 8px;
+  padding: 7px 8px;
+  color: var(--color-text-soft);
+  font-size: 12px;
+}
+
+.menu-item:hover {
   background: var(--color-surface-soft);
   color: var(--color-text);
 }
 
-.delete-btn:hover {
-  background: var(--color-danger-soft);
+.menu-item.danger {
   color: var(--color-danger);
+}
+
+.menu-note {
+  border-radius: 8px;
+  padding: 7px 8px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  background: var(--color-surface-soft);
 }
 
 .card-head {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding-right: 132px;
+  padding-right: 42px;
 }
 
 .avatar {
@@ -252,12 +311,14 @@ function onPublish() {
 .head-text {
   min-width: 0;
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
 }
 
 .name-row {
   display: flex;
   align-items: center;
-  gap: 6px;
 }
 
 .name {
@@ -269,15 +330,28 @@ function onPublish() {
   text-overflow: ellipsis;
 }
 
+.meta-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
 .source-badge {
   flex-shrink: 0;
   font-size: 10px;
   line-height: 1;
-  padding: 3px 6px;
+  padding: 2px 6px;
   border-radius: 999px;
   border: 1px solid var(--color-border);
   background: var(--color-surface-soft);
   color: var(--color-text-soft);
+}
+
+.source-badge.marketplace {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  color: var(--color-primary-hover);
 }
 
 .role {
