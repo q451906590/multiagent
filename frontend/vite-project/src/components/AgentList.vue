@@ -10,10 +10,10 @@ defineProps({
   agents: { type: Array, required: true },
 })
 
-const emit = defineEmits(['open', 'open-floating', 'manage-extensions', 'manage-delegations', 'open-marketplace'])
+const emit = defineEmits(['open', 'open-floating', 'manage-extensions', 'manage-delegations'])
 
 const { addAgent, editAgent, removeAgent, getAgent, state } = useAgents()
-const { publishAgent } = useMarketplace()
+const { state: marketplaceState, publishAgent, loadTags } = useMarketplace()
 
 const dialogMode = ref(null)
 const editingId = ref(null)
@@ -25,6 +25,7 @@ const dialogInitial = computed(() => {
 })
 
 const combinedError = computed(() => state.error)
+const hasStatus = computed(() => Boolean(state.bootstrapping || state.loading || combinedError.value))
 
 function openAddDialog() {
   editingId.value = null
@@ -81,16 +82,13 @@ function handleDelegations(id) {
   emit('manage-delegations', id)
 }
 
-function handleOpenMarketplace() {
-  emit('open-marketplace')
-}
-
 function handlePublish(agent) {
   if (agent?.sourceTemplateId) {
     window.alert('该 Agent 来自市集，不能再次发布到市集。')
     return
   }
   publishingAgent.value = agent || null
+  loadTags().catch(() => {})
 }
 
 function closePublishDialog() {
@@ -110,16 +108,8 @@ async function submitPublish(payload) {
 
 <template>
   <section class="agent-list">
-    <header class="topbar">
-      <div class="brand">
-        <div class="brand-mark">M</div>
-        <div class="brand-text">
-          <div class="brand-title">Multi-Agent Workspace</div>
-          <div class="brand-sub">为不同角色定义 system prompt，双击进入对话</div>
-        </div>
-      </div>
+    <header v-if="hasStatus" class="topbar">
       <div class="top-actions">
-        <button class="market-btn" @click="handleOpenMarketplace">Agent 市集</button>
         <div v-if="state.bootstrapping" class="status-pill">正在拉起 hermes 容器…</div>
         <div v-else-if="state.loading" class="status-pill">加载中…</div>
         <div v-else-if="combinedError" class="status-pill error">后端连接失败：{{ combinedError }}</div>
@@ -153,6 +143,7 @@ async function submitPublish(payload) {
     <PublishListingDialog
       :open="Boolean(publishingAgent)"
       :agent="publishingAgent"
+      :tags="marketplaceState.tags"
       @cancel="closePublishDialog"
       @submit="submitPublish"
     />
@@ -173,7 +164,7 @@ async function submitPublish(payload) {
 .topbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   margin-bottom: 28px;
   gap: 16px;
 }
@@ -182,46 +173,6 @@ async function submitPublish(payload) {
   display: flex;
   align-items: center;
   gap: 10px;
-}
-
-.market-btn {
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  background: var(--color-surface);
-  padding: 6px 12px;
-  font-size: 12px;
-}
-
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.brand-mark {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  background: var(--color-primary);
-  color: #fff;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-  font-size: 18px;
-  letter-spacing: -0.5px;
-}
-
-.brand-title {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--color-text);
-}
-
-.brand-sub {
-  font-size: 12px;
-  color: var(--color-text-muted);
-  margin-top: 2px;
 }
 
 .status-pill {

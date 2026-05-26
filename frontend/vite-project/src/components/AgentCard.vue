@@ -92,10 +92,8 @@ function withClose(fn) {
   }
 }
 
-const onManageWithClose = withClose(onManage)
 const onDelegationsWithClose = withClose(onDelegations)
 const onEditWithClose = withClose(onEdit)
-const onOpenFloatingWithClose = withClose(onOpenFloating)
 const onPublishWithClose = withClose(onPublish)
 const onDeleteWithClose = withClose(onDelete)
 
@@ -142,12 +140,28 @@ onBeforeUnmount(() => {
     @keydown.enter.prevent="onDblClick"
   >
     <div class="card-actions">
+      <button class="action-btn" title="扩展管理" @click.stop="onManage">
+        <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+          <path
+            d="M11 3h2v18h-2zM3 11h18v2H3z"
+            fill="currentColor"
+          />
+        </svg>
+      </button>
+      <button class="action-btn" title="打开小窗口" @click.stop="onOpenFloating">
+        <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+          <path
+            d="M5 5h14v14H5zM8 8h8v8H8z"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+          />
+        </svg>
+      </button>
       <button class="more-btn" title="更多操作" @click.stop="toggleMore">...</button>
       <div v-if="showMore" class="more-menu" @click.stop>
-        <button class="menu-item" @click.stop="onManageWithClose">扩展管理</button>
         <button class="menu-item" @click.stop="onDelegationsWithClose">外派 AK 管理</button>
         <button class="menu-item" @click.stop="onEditWithClose">编辑</button>
-        <button class="menu-item" @click.stop="onOpenFloatingWithClose">打开小窗口</button>
         <button
           v-if="!isMarketplaceImported"
           class="menu-item"
@@ -229,23 +243,32 @@ onBeforeUnmount(() => {
   top: 10px;
   right: 10px;
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
+  flex-direction: row;
+  align-items: center;
   gap: 6px;
 }
 
+.action-btn,
 .more-btn {
   min-width: 28px;
+  width: 28px;
   height: 24px;
   border-radius: 999px;
   border: 1px solid var(--color-border);
   background: var(--color-surface);
   color: var(--color-text-muted);
-  font-size: 16px;
-  line-height: 1;
-  padding: 0 8px 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
+.more-btn {
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 0 3px;
+}
+
+.action-btn:hover,
 .more-btn:hover {
   color: var(--color-text);
   border-color: var(--color-border-strong);
@@ -253,6 +276,9 @@ onBeforeUnmount(() => {
 }
 
 .more-menu {
+  position: absolute;
+  top: 30px;
+  right: 0;
   min-width: 130px;
   border: 1px solid var(--color-border);
   border-radius: 10px;

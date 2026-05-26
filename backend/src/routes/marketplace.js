@@ -1,17 +1,25 @@
 import { Router } from 'express'
 import { authUser } from '../middlewares/authUser.js'
 import {
+  createMarketplaceTag,
   getMarketplaceTemplateDetail,
   installTemplateToUser,
+  listMarketplaceTagOptions,
   listMarketplaceTemplates,
   publishFromAgent,
+  removeMarketplaceTag,
+  updateMarketplaceTagName,
 } from '../services/marketplaceService.js'
 import { ImageBuildInProgressError } from '../services/hermes.js'
 
 const router = Router()
 
 router.get('/agents', (_req, res) => {
-  res.json(listMarketplaceTemplates())
+  const tags = String(_req.query.tags || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+  res.json(listMarketplaceTemplates({ tagIds: tags }))
 })
 
 router.get('/agents/:id', (req, res) => {
@@ -30,6 +38,7 @@ router.post('/agents', authUser, async (req, res) => {
       userId: req.user.id,
       title: body.title,
       description: body.description,
+      tags: body.tags,
     })
     res.status(201).json(result)
   } catch (err) {
@@ -37,6 +46,51 @@ router.post('/agents', authUser, async (req, res) => {
       return res.status(err.status).json({ error: err.message || 'publish_failed' })
     }
     res.status(500).json({ error: err?.message || 'publish_failed' })
+  }
+})
+
+router.get('/tags', (_req, res) => {
+  res.json(listMarketplaceTagOptions())
+})
+
+router.post('/tags', authUser, (req, res) => {
+  try {
+    const body = req.body || {}
+    const created = createMarketplaceTag({ name: body.name })
+    res.status(201).json(created)
+  } catch (err) {
+    if (err?.status) {
+      return res.status(err.status).json({ error: err.message || 'tag_create_failed' })
+    }
+    res.status(500).json({ error: err?.message || 'tag_create_failed' })
+  }
+})
+
+router.patch('/tags/:id', authUser, (req, res) => {
+  try {
+    const body = req.body || {}
+    const updated = updateMarketplaceTagName({
+      tagId: req.params.id,
+      name: body.name,
+    })
+    res.json(updated)
+  } catch (err) {
+    if (err?.status) {
+      return res.status(err.status).json({ error: err.message || 'tag_update_failed' })
+    }
+    res.status(500).json({ error: err?.message || 'tag_update_failed' })
+  }
+})
+
+router.delete('/tags/:id', authUser, (req, res) => {
+  try {
+    removeMarketplaceTag(req.params.id)
+    res.json({ ok: true })
+  } catch (err) {
+    if (err?.status) {
+      return res.status(err.status).json({ error: err.message || 'tag_delete_failed' })
+    }
+    res.status(500).json({ error: err?.message || 'tag_delete_failed' })
   }
 })
 

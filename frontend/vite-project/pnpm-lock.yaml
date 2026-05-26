@@ -8,6 +8,18 @@ importers:
 
   .:
     dependencies:
+      '@vue-flow/background':
+        specifier: ^1.3.2
+        version: 1.3.2(@vue-flow/core@1.48.2(vue@3.5.34))(vue@3.5.34)
+      '@vue-flow/controls':
+        specifier: ^1.1.3
+        version: 1.1.3(@vue-flow/core@1.48.2(vue@3.5.34))(vue@3.5.34)
+      '@vue-flow/core':
+        specifier: ^1.48.2
+        version: 1.48.2(vue@3.5.34)
+      '@vue-flow/minimap':
+        specifier: ^1.5.4
+        version: 1.5.4(@vue-flow/core@1.48.2(vue@3.5.34))(vue@3.5.34)
       markdown-it:
         specifier: ^14.1.0
         version: 14.1.1
@@ -203,6 +215,11 @@ packages:
   '@rolldown/pluginutils@1.0.0-rc.13':
     resolution: {integrity: sha1-CToBrwzeE1UvBYVE/K3xLptSLDs=, tarball: https://registry.npm.wps.cn/@rolldown/pluginutils/download/@rolldown/pluginutils-1.0.0-rc.13.tgz}
 
+  '@rollup/rollup-darwin-arm64@4.60.3':
+    resolution: {integrity: sha1-vDQak7shETJqKGX1XR0juu3s9Aw=, tarball: https://registry.npm.wps.cn/@rollup/rollup-darwin-arm64/download/@rollup/rollup-darwin-arm64-4.60.3.tgz}
+    cpu: [arm64]
+    os: [darwin]
+
   '@rollup/rollup-linux-x64-gnu@4.60.3':
     resolution: {integrity: sha1-32uzhhemaoQr0q6slWDNcp0IQlg=, tarball: https://registry.npm.wps.cn/@rollup/rollup-linux-x64-gnu/download/@rollup/rollup-linux-x64-gnu-4.60.3.tgz}
     cpu: [x64]
@@ -217,12 +234,38 @@ packages:
   '@types/estree@1.0.8':
     resolution: {integrity: sha1-lYuRyZGxhnztMYvt6g4hXuBQcm4=, tarball: https://registry.npm.wps.cn/@types/estree/download/@types/estree-1.0.8.tgz}
 
+  '@types/web-bluetooth@0.0.20':
+    resolution: {integrity: sha1-8Gar/NHL5mJnzbvw3gENikG0FZc=, tarball: https://registry.npm.wps.cn/@types/web-bluetooth/download/@types/web-bluetooth-0.0.20.tgz}
+
   '@vitejs/plugin-vue@6.0.6':
     resolution: {integrity: sha1-TYo6eUE4LPJ2CsVZM2S+poVq57I=, tarball: https://registry.npm.wps.cn/@vitejs/plugin-vue/download/@vitejs/plugin-vue-6.0.6.tgz}
     engines: {node: ^20.19.0 || >=22.12.0}
     peerDependencies:
       vite: ^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0
       vue: ^3.2.25
+
+  '@vue-flow/background@1.3.2':
+    resolution: {integrity: sha1-DJDNBeXWDaAXu69aHD62r37Zt3g=, tarball: https://registry.npm.wps.cn/@vue-flow/background/download/@vue-flow/background-1.3.2.tgz}
+    peerDependencies:
+      '@vue-flow/core': ^1.23.0
+      vue: ^3.3.0
+
+  '@vue-flow/controls@1.1.3':
+    resolution: {integrity: sha1-QIZrVTEB++8i0rmgQ5Ze12/KSyw=, tarball: https://registry.npm.wps.cn/@vue-flow/controls/download/@vue-flow/controls-1.1.3.tgz}
+    peerDependencies:
+      '@vue-flow/core': ^1.23.0
+      vue: ^3.3.0
+
+  '@vue-flow/core@1.48.2':
+    resolution: {integrity: sha1-zvhkGxf2IgwlfUIIvbIILO6IIiU=, tarball: https://registry.npm.wps.cn/@vue-flow/core/download/@vue-flow/core-1.48.2.tgz}
+    peerDependencies:
+      vue: ^3.3.0
+
+  '@vue-flow/minimap@1.5.4':
+    resolution: {integrity: sha1-ycO63qSdQWaqnNxxMBc5fZ33V0w=, tarball: https://registry.npm.wps.cn/@vue-flow/minimap/download/@vue-flow/minimap-1.5.4.tgz}
+    peerDependencies:
+      '@vue-flow/core': ^1.23.0
+      vue: ^3.3.0
 
   '@vue/compiler-core@3.5.34':
     resolution: {integrity: sha1-bYSka3/fEWLPgiWqK+QpGKdquCc=, tarball: https://registry.npm.wps.cn/@vue/compiler-core/download/@vue/compiler-core-3.5.34.tgz}
@@ -253,11 +296,58 @@ packages:
   '@vue/shared@3.5.34':
     resolution: {integrity: sha1-Zl8rL9YA9sGAZoQjkJpv3mTL/M0=, tarball: https://registry.npm.wps.cn/@vue/shared/download/@vue/shared-3.5.34.tgz}
 
+  '@vueuse/core@10.11.1':
+    resolution: {integrity: sha1-FdLAtkSNIhIjWyOnuinCcXPgwsY=, tarball: https://registry.npm.wps.cn/@vueuse/core/download/@vueuse/core-10.11.1.tgz}
+
+  '@vueuse/metadata@10.11.1':
+    resolution: {integrity: sha1-IJ23u1kVqhcqh1ELbeLKAcrb0qc=, tarball: https://registry.npm.wps.cn/@vueuse/metadata/download/@vueuse/metadata-10.11.1.tgz}
+
+  '@vueuse/shared@10.11.1':
+    resolution: {integrity: sha1-YrhOMRiubh8/849PvnGwxdDxCTg=, tarball: https://registry.npm.wps.cn/@vueuse/shared/download/@vueuse/shared-10.11.1.tgz}
+
   argparse@2.0.1:
     resolution: {integrity: sha1-JG9Q88p4oyQPbJl+ipvR6sSeSzg=, tarball: https://registry.npm.wps.cn/argparse/download/argparse-2.0.1.tgz}
 
   csstype@3.2.3:
     resolution: {integrity: sha1-7EjA8+mT5QZIyG2lWeJhCZXPmJo=, tarball: https://registry.npm.wps.cn/csstype/download/csstype-3.2.3.tgz}
+
+  d3-color@3.1.0:
+    resolution: {integrity: sha1-OVsoM9+scVB/EqwvevI7+BneJOI=, tarball: https://registry.npm.wps.cn/d3-color/download/d3-color-3.1.0.tgz}
+    engines: {node: '>=12'}
+
+  d3-dispatch@3.0.1:
+    resolution: {integrity: sha1-X8dShOnCN1w2yDlBGgz1UMv8TV4=, tarball: https://registry.npm.wps.cn/d3-dispatch/download/d3-dispatch-3.0.1.tgz}
+    engines: {node: '>=12'}
+
+  d3-drag@3.0.0:
+    resolution: {integrity: sha1-mUqunNI8cZ9TteEOOgphCMaWB7o=, tarball: https://registry.npm.wps.cn/d3-drag/download/d3-drag-3.0.0.tgz}
+    engines: {node: '>=12'}
+
+  d3-ease@3.0.1:
+    resolution: {integrity: sha1-llisOKIUDVnTRhYPH2ww/aC9EvQ=, tarball: https://registry.npm.wps.cn/d3-ease/download/d3-ease-3.0.1.tgz}
+    engines: {node: '>=12'}
+
+  d3-interpolate@3.0.1:
+    resolution: {integrity: sha1-PEeqWzLFs9+1bvP9Q0IHimMrQA0=, tarball: https://registry.npm.wps.cn/d3-interpolate/download/d3-interpolate-3.0.1.tgz}
+    engines: {node: '>=12'}
+
+  d3-selection@3.0.0:
+    resolution: {integrity: sha1-wlM4IH76csxbm9FFihpBkB8eGzE=, tarball: https://registry.npm.wps.cn/d3-selection/download/d3-selection-3.0.0.tgz}
+    engines: {node: '>=12'}
+
+  d3-timer@3.0.1:
+    resolution: {integrity: sha1-YoTSonCChbGrt+IB7aQ4CvNeY7A=, tarball: https://registry.npm.wps.cn/d3-timer/download/d3-timer-3.0.1.tgz}
+    engines: {node: '>=12'}
+
+  d3-transition@3.0.1:
+    resolution: {integrity: sha1-aGn93hRIhoB3/dWYkgDLYbKhZF8=, tarball: https://registry.npm.wps.cn/d3-transition/download/d3-transition-3.0.1.tgz}
+    engines: {node: '>=12'}
+    peerDependencies:
+      d3-selection: 2 - 3
+
+  d3-zoom@3.0.0:
+    resolution: {integrity: sha1-0T9BZccyF//qpUKVzWlps+eu6PM=, tarball: https://registry.npm.wps.cn/d3-zoom/download/d3-zoom-3.0.0.tgz}
+    engines: {node: '>=12'}
 
   entities@4.5.0:
     resolution: {integrity: sha1-XSaOpecRPsdMTQM7eepaNaSI+0g=, tarball: https://registry.npm.wps.cn/entities/download/entities-4.5.0.tgz}
@@ -378,6 +468,17 @@ packages:
       yaml:
         optional: true
 
+  vue-demi@0.14.10:
+    resolution: {integrity: sha1-r8eN49b54Rv3jFXoUQ7hKBRSLwQ=, tarball: https://registry.npm.wps.cn/vue-demi/download/vue-demi-0.14.10.tgz}
+    engines: {node: '>=12'}
+    hasBin: true
+    peerDependencies:
+      '@vue/composition-api': ^1.0.0-rc.1
+      vue: ^3.0.0-0 || ^2.6.0
+    peerDependenciesMeta:
+      '@vue/composition-api':
+        optional: true
+
   vue@3.5.34:
     resolution: {integrity: sha1-OyVuswlkQWr2QGp5X8/XpXc6k8U=, tarball: https://registry.npm.wps.cn/vue/download/vue-3.5.34.tgz}
     peerDependencies:
@@ -483,6 +584,9 @@ snapshots:
 
   '@rolldown/pluginutils@1.0.0-rc.13': {}
 
+  '@rollup/rollup-darwin-arm64@4.60.3':
+    optional: true
+
   '@rollup/rollup-linux-x64-gnu@4.60.3':
     optional: true
 
@@ -491,10 +595,40 @@ snapshots:
 
   '@types/estree@1.0.8': {}
 
+  '@types/web-bluetooth@0.0.20': {}
+
   '@vitejs/plugin-vue@6.0.6(vite@7.3.3)(vue@3.5.34)':
     dependencies:
       '@rolldown/pluginutils': 1.0.0-rc.13
       vite: 7.3.3
+      vue: 3.5.34
+
+  '@vue-flow/background@1.3.2(@vue-flow/core@1.48.2(vue@3.5.34))(vue@3.5.34)':
+    dependencies:
+      '@vue-flow/core': 1.48.2(vue@3.5.34)
+      vue: 3.5.34
+
+  '@vue-flow/controls@1.1.3(@vue-flow/core@1.48.2(vue@3.5.34))(vue@3.5.34)':
+    dependencies:
+      '@vue-flow/core': 1.48.2(vue@3.5.34)
+      vue: 3.5.34
+
+  '@vue-flow/core@1.48.2(vue@3.5.34)':
+    dependencies:
+      '@vueuse/core': 10.11.1(vue@3.5.34)
+      d3-drag: 3.0.0
+      d3-interpolate: 3.0.1
+      d3-selection: 3.0.0
+      d3-zoom: 3.0.0
+      vue: 3.5.34
+    transitivePeerDependencies:
+      - '@vue/composition-api'
+
+  '@vue-flow/minimap@1.5.4(@vue-flow/core@1.48.2(vue@3.5.34))(vue@3.5.34)':
+    dependencies:
+      '@vue-flow/core': 1.48.2(vue@3.5.34)
+      d3-selection: 3.0.0
+      d3-zoom: 3.0.0
       vue: 3.5.34
 
   '@vue/compiler-core@3.5.34':
@@ -551,9 +685,64 @@ snapshots:
 
   '@vue/shared@3.5.34': {}
 
+  '@vueuse/core@10.11.1(vue@3.5.34)':
+    dependencies:
+      '@types/web-bluetooth': 0.0.20
+      '@vueuse/metadata': 10.11.1
+      '@vueuse/shared': 10.11.1(vue@3.5.34)
+      vue-demi: 0.14.10(vue@3.5.34)
+    transitivePeerDependencies:
+      - '@vue/composition-api'
+      - vue
+
+  '@vueuse/metadata@10.11.1': {}
+
+  '@vueuse/shared@10.11.1(vue@3.5.34)':
+    dependencies:
+      vue-demi: 0.14.10(vue@3.5.34)
+    transitivePeerDependencies:
+      - '@vue/composition-api'
+      - vue
+
   argparse@2.0.1: {}
 
   csstype@3.2.3: {}
+
+  d3-color@3.1.0: {}
+
+  d3-dispatch@3.0.1: {}
+
+  d3-drag@3.0.0:
+    dependencies:
+      d3-dispatch: 3.0.1
+      d3-selection: 3.0.0
+
+  d3-ease@3.0.1: {}
+
+  d3-interpolate@3.0.1:
+    dependencies:
+      d3-color: 3.1.0
+
+  d3-selection@3.0.0: {}
+
+  d3-timer@3.0.1: {}
+
+  d3-transition@3.0.1(d3-selection@3.0.0):
+    dependencies:
+      d3-color: 3.1.0
+      d3-dispatch: 3.0.1
+      d3-ease: 3.0.1
+      d3-interpolate: 3.0.1
+      d3-selection: 3.0.0
+      d3-timer: 3.0.1
+
+  d3-zoom@3.0.0:
+    dependencies:
+      d3-dispatch: 3.0.1
+      d3-drag: 3.0.0
+      d3-interpolate: 3.0.1
+      d3-selection: 3.0.0
+      d3-transition: 3.0.1(d3-selection@3.0.0)
 
   entities@4.5.0: {}
 
@@ -634,6 +823,7 @@ snapshots:
     dependencies:
       '@types/estree': 1.0.8
     optionalDependencies:
+      '@rollup/rollup-darwin-arm64': 4.60.3
       '@rollup/rollup-linux-x64-gnu': 4.60.3
       '@rollup/rollup-win32-x64-msvc': 4.60.3
       fsevents: 2.3.3
@@ -657,6 +847,10 @@ snapshots:
       tinyglobby: 0.2.16
     optionalDependencies:
       fsevents: 2.3.3
+
+  vue-demi@0.14.10(vue@3.5.34):
+    dependencies:
+      vue: 3.5.34
 
   vue@3.5.34:
     dependencies:

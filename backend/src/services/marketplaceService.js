@@ -5,11 +5,17 @@ import {
   getAgent,
   getAgentTemplateById,
   getAgentTemplateBySourceAgent,
+  getMarketplaceTagById,
+  getMarketplaceTagByName,
   insertAgent,
   insertAgentInstallation,
+  insertMarketplaceTag,
   insertAgentTemplate,
+  listMarketplaceTags,
   listPublicAgentTemplates,
+  updateMarketplaceTag,
   updateAgentTemplate,
+  deleteMarketplaceTag,
 } from '../db.js'
 import {
   ImageBuildInProgressError,
@@ -41,6 +47,7 @@ function templateVersion(template) {
 }
 
 function templatePublicItem(template) {
+  const tags = Array.isArray(template.tags) ? template.tags : []
   return {
     id: template.id,
     title: template.title,
@@ -51,8 +58,20 @@ function templatePublicItem(template) {
     model: template.model,
     installCount: template.installCount,
     publisherUsername: template.publisherUsername || '',
+    tags,
     createdAt: template.createdAt,
     updatedAt: template.updatedAt,
+  }
+}
+
+function withResolvedTags(template) {
+  if (!template) return template
+  const tagMap = new Map(listMarketplaceTags().map((tag) => [tag.id, tag]))
+  return {
+    ...template,
+    tags: (template.tagIds || [])
+      .map((tagId) => tagMap.get(tagId))
+      .filter(Boolean),
   }
 }
 
@@ -77,19 +96,132 @@ function templatePublicDetail(template) {
   }
 }
 
-export function listMarketplaceTemplates() {
-  return listPublicAgentTemplates().map(templatePublicItem)
+export function listMarketplaceTemplates({ tagIds = [] } = {}) {
+  const filterTagIds = normalizeTagInput(tagIds)
+  const tags = listMarketplaceTags()
+  const tagMap = new Map(tags.map((tag) => [tag.id, tag]))
+  return listPublicAgentTemplates()
+    .map((template) => ({
+      ...template,
+      tags: (template.tagIds || [])
+        .map((tagId) => tagMap.get(tagId))
+        .filter(Boolean),
+    }))
+    .filter((template) => {
+      if (filterTagIds.length === 0) return true
+      const templateTagIds = (template.tags || []).map((tag) => tag.id)
+      return filterTagIds.every((tagId) => templateTagIds.includes(tagId))
+    })
+    .map(templatePublicItem)
 }
 
 export function getMarketplaceTemplateDetail(templateId) {
+  const tags = listMarketplaceTags()
+  const tagMap = new Map(tags.map((tag) => [tag.id, tag]))
   const template = getAgentTemplateById(templateId)
   if (!template || template.status !== 'published' || template.visibility !== 'public') {
     return null
   }
-  return templatePublicDetail(template)
+  const detail = {
+    ...template,
+    tags: (template.tagIds || [])
+      .map((tagId) => tagMap.get(tagId))
+      .filter(Boolean),
+  }
+  return templatePublicDetail(detail)
 }
 
-export async function publishFromAgent({ agentId, userId, title, description }) {
+function normalizeTagInput(tags) {
+  if (!Array.isArray(tags)) return []
+  return [...new Set(tags.map((item) => String(item || '').trim()).filter(Boolean))]
+}
+
+function resolveTagIds(tags) {
+  const ids = []
+  for (const tag of normalizeTagInput(tags)) {
+    const byId = getMarketplaceTagById(tag)
+    if (byId) {
+      ids.push(byId.id)
+      continue
+    }
+    const byName = getMarketplaceTagByName(tag)
+    if (byName) ids.push(byName.id)
+  }
+  return [...new Set(ids)]
+}
+
+export function listMarketplaceTagOptions() {
+  return listMarketplaceTags()
+}
+
+export function createMarketplaceTag({ name }) {
+  const normalized = String(name || '').trim().replace(/\s+/g, ' ').slice(0, 24)
+  if (!normalized) {
+    const err = new Error('tag_name_required')
+    err.status = 400
+    throw err
+  }
+  if (getMarketplaceTagByName(normalized)) {
+    const err = new Error('tag_name_duplicated')
+    err.status = 409
+    throw err
+  }
+  const now = Date.now()
+  const created = {
+    id: randomUUID(),
+    name: normalized,
+    createdAt: now,
+    updatedAt: now,
+  }
+  insertMarketplaceTag(created)
+  return created
+}
+
+export function updateMarketplaceTagName({ tagId, name }) {
+  const existing = getMarketplaceTagById(tagId)
+  if (!existing) {
+    const err = new Error('tag_not_found')
+    err.status = 404
+    throw err
+  }
+  const normalized = String(name || '').trim().replace(/\s+/g, ' ').slice(0, 24)
+  if (!normalized) {
+    const err = new Error('tag_name_required')
+    err.status = 400
+    throw err
+  }
+  const duplicate = getMarketplaceTagByName(normalized)
+  if (duplicate && duplicate.id !== existing.id) {
+    const err = new Error('tag_name_duplicated')
+    err.status = 409
+    throw err
+  }
+  updateMarketplaceTag(existing.id, {
+    name: normalized,
+    updatedAt: Date.now(),
+  })
+  return getMarketplaceTagById(existing.id)
+}
+
+export function removeMarketplaceTag(tagId) {
+  const existing = getMarketplaceTagById(tagId)
+  if (!existing) {
+    const err = new Error('tag_not_found')
+    err.status = 404
+    throw err
+  }
+  const now = Date.now()
+  const templates = listPublicAgentTemplates()
+  for (const template of templates) {
+    if (!Array.isArray(template.tagIds) || template.tagIds.length === 0) continue
+    const nextTagIds = template.tagIds.filter((id) => id !== tagId)
+    if (nextTagIds.length === template.tagIds.length) continue
+    updateAgentTemplate(template.id, { tagIds: nextTagIds, updatedAt: now }, template.publisherUserId)
+  }
+  deleteMarketplaceTag(tagId)
+}
+
+export async function publishFromAgent({ agentId, userId, title, description, tags }) {
   const source = getAgent(agentId, userId)
   if (!source) {
     const err = new Error('agent_not_found')
@@ -105,6 +237,7 @@ export async function publishFromAgent({ agentId, userId, title, description }) 
   const now = Date.now()
   const nextTitle = String(title || '').trim() || source.name
   const nextDescription = String(description || '').trim()
+  const nextTagIds = resolveTagIds(tags)
   const baseSlug = slugify(nextTitle || source.name) || `agent-${source.id.slice(0, 8)}`
   const current = getAgentTemplateBySourceAgent(source.id, userId)
 
@@ -122,11 +255,12 @@ export async function publishFromAgent({ agentId, userId, title, description }) 
       hermesMissingKeys: snapshot.hermesMissingKeys,
       mcpList: snapshot.mcpList,
       skillsList: snapshot.skillsList,
+      tagIds: nextTagIds,
       visibility: 'public',
       status: 'published',
       updatedAt: now,
     }, userId)
-    const updated = getAgentTemplateById(current.id)
+    const updated = withResolvedTags(getAgentTemplateById(current.id))
     return templatePublicDetail(updated)
   }
 
@@ -147,6 +281,7 @@ export async function publishFromAgent({ agentId, userId, title, description }) 
     hermesMissingKeys: snapshot.hermesMissingKeys,
     mcpList: snapshot.mcpList,
     skillsList: snapshot.skillsList,
+    tagIds: nextTagIds,
     visibility: 'public',
     status: 'published',
     installCount: 0,
@@ -154,7 +289,7 @@ export async function publishFromAgent({ agentId, userId, title, description }) 
     updatedAt: now,
   }
   insertAgentTemplate(template)
-  return templatePublicDetail(template)
+  return templatePublicDetail(withResolvedTags(template))
 }
 
 export async function installTemplateToUser({ templateId, userId }) {

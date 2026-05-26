@@ -36,6 +36,12 @@ export const config = {
   delegationKeyDefaultTtlMs: envInt('DELEGATION_KEY_DEFAULT_TTL_MS', 30 * 24 * 60 * 60 * 1000),
   jwtSecret: process.env.JWT_SECRET || 'dev-jwt-secret-change-me',
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
+  n8nBaseUrl: String(process.env.N8N_BASE_URL || '').trim().replace(/\/+$/, ''),
+  n8nApiKey: String(process.env.N8N_API_KEY || '').trim(),
+  n8nWebhookBaseUrl: String(process.env.N8N_WEBHOOK_BASE_URL || '').trim().replace(/\/+$/, ''),
+  n8nWebhookSecret: String(process.env.N8N_WEBHOOK_SECRET || '').trim(),
+  n8nWorkflowTag: String(process.env.N8N_WORKFLOW_TAG || 'multiagent-workflow').trim() || 'multiagent-workflow',
+  backendPublicBaseUrl: String(process.env.BACKEND_PUBLIC_BASE_URL || '').trim().replace(/\/+$/, ''),
 
   dockerSocket: process.env.DOCKER_SOCKET || '',
 

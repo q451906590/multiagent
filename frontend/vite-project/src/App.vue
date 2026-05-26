@@ -5,8 +5,12 @@ import AgentChat from './components/AgentChat.vue'
 import AgentExtensions from './components/AgentExtensions.vue'
 import DelegationKeyManager from './components/DelegationKeyManager.vue'
 import LoginPanel from './components/LoginPanel.vue'
+import AppSidebar from './components/AppSidebar.vue'
 import MarketplaceBrowse from './components/MarketplaceBrowse.vue'
 import MarketplaceListingDetail from './components/MarketplaceListingDetail.vue'
+import ImportCenter from './components/ImportCenter.vue'
+import DemoPage from './components/DemoPage.vue'
+import WorkflowBuilderPage from './views/WorkflowBuilderPage.vue'
 import { useAgents } from './composables/useAgents.js'
 import { useAuth } from './composables/useAuth.js'
 
@@ -14,6 +18,10 @@ const { agents, ensureLoaded, reset, getAgent } = useAgents()
 const { state: authState, isAuthenticated, logout } = useAuth()
 
 const view = ref({ name: 'list' })
+const demoMeta = ref({
+  title: '功能演示',
+  description: '该菜单已按截图完成导航占位，功能将在后续迭代补齐。',
+})
 const fullscreenChatHostEl = ref(null)
 const floatingChats = ref([])
 const dragging = ref(false)
@@ -51,16 +59,8 @@ function openDelegations(agentId) {
   view.value = { name: 'delegations', agentId }
 }
 
-function openMarketplace() {
-  view.value = { name: 'marketplace' }
-}
-
 function openMarketplaceDetail(templateId) {
   view.value = { name: 'marketplaceDetail', templateId }
-}
-
-function backToMarketplace() {
-  view.value = { name: 'marketplace' }
 }
 
 function onLogout() {
@@ -252,6 +252,28 @@ watch(
 )
 
 const showList = computed(() => view.value.name === 'list')
+const currentNavView = computed(() => {
+  if (view.value.name === 'marketplaceDetail') return 'marketplace'
+  if (['chat', 'extensions', 'delegations'].includes(view.value.name)) return 'list'
+  if (view.value.name === 'demo') return view.value.menuKey || 'demo'
+  return view.value.name
+})
+
+function handleSidebarNavigate(item) {
+  if (!item?.key) return
+  if (item.key.startsWith('demo:')) {
+    view.value = {
+      name: 'demo',
+      menuKey: item.key,
+    }
+    demoMeta.value = {
+      title: `${item.label}（Demo）`,
+      description: '该菜单已按截图完成占位展示，当前版本先提供独立 Demo 页。',
+    }
+    return
+  }
+  view.value = { name: item.key }
+}
 
 function getFloatingStyle(item) {
   return {
@@ -268,26 +290,38 @@ function getFloatingStyle(item) {
   <div v-if="!authState.ready" class="auth-loading">正在初始化登录状态…</div>
   <LoginPanel v-else-if="!isAuthenticated" />
   <div v-else class="app-shell">
-    <button class="logout-btn" @click="onLogout">退出登录</button>
-    <AgentList
-      v-if="showList"
-      :agents="agents"
-      @open="openChat"
-      @open-floating="openFloatingChatFromList"
-      @manage-extensions="openExtensions"
-      @manage-delegations="openDelegations"
-      @open-marketplace="openMarketplace"
-    />
-    <MarketplaceBrowse
-      v-if="view.name === 'marketplace'"
-      @back="backToList"
-      @open-detail="openMarketplaceDetail"
-    />
-    <MarketplaceListingDetail
-      v-if="view.name === 'marketplaceDetail'"
-      :template-id="view.templateId"
-      @back="backToMarketplace"
-    />
+    <AppSidebar :current-view="currentNavView" @navigate="handleSidebarNavigate" />
+    <div class="content-shell">
+      <header class="topbar">
+        <div class="crumb">Agent平台 / {{ currentNavView }}</div>
+        <button class="logout-btn" @click="onLogout">退出登录</button>
+      </header>
+      <main class="page-body">
+        <AgentList
+          v-if="showList"
+          :agents="agents"
+          @open="openChat"
+          @open-floating="openFloatingChatFromList"
+          @manage-extensions="openExtensions"
+          @manage-delegations="openDelegations"
+        />
+        <MarketplaceBrowse
+          v-if="view.name === 'marketplace'"
+          @open-detail="openMarketplaceDetail"
+        />
+        <MarketplaceListingDetail
+          v-if="view.name === 'marketplaceDetail'"
+          :template-id="view.templateId"
+        />
+        <ImportCenter v-if="view.name === 'importCenter'" />
+        <WorkflowBuilderPage v-if="view.name === 'workflowBuilder'" />
+        <DemoPage
+          v-if="view.name === 'demo'"
+          :title="demoMeta.title"
+          :description="demoMeta.description"
+        />
+      </main>
+    </div>
     <div
       v-if="view.name === 'chat' && activeAgent"
       ref="fullscreenChatHostEl"
@@ -335,7 +369,7 @@ function getFloatingStyle(item) {
 .app-shell {
   min-height: 100vh;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   position: relative;
 }
 
@@ -346,15 +380,41 @@ function getFloatingStyle(item) {
   color: var(--color-text-muted);
 }
 
+.content-shell {
+  flex: 1;
+  min-width: 0;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  height: 52px;
+  border-bottom: 1px solid var(--kd-line);
+  background: var(--kd-surface);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+}
+
+.crumb {
+  color: var(--kd-text-muted);
+  font-size: 12px;
+}
+
+.page-body {
+  flex: 1;
+  min-width: 0;
+  background: var(--kd-bg);
+  overflow: auto;
+}
+
 .logout-btn {
-  position: fixed;
-  top: 14px;
-  right: 16px;
-  z-index: 60;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--kd-line);
   border-radius: 999px;
-  background: var(--color-surface);
-  color: var(--color-text);
+  background: var(--kd-surface);
+  color: var(--kd-text);
   padding: 6px 12px;
   font-size: 12px;
 }

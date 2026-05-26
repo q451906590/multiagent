@@ -12,6 +12,10 @@ import delegationsRouter from './routes/delegations.js'
 import authRouter from './routes/auth.js'
 import { authUser } from './middlewares/authUser.js'
 import marketplaceRouter from './routes/marketplace.js'
+import importCenterRouter from './routes/importCenter.js'
+import workflowsRouter from './routes/workflows.js'
+import workflowRunsRouter from './routes/workflowRuns.js'
+import workflowWebhooksRouter from './routes/workflowWebhooks.js'
 
 const app = express()
 
@@ -28,6 +32,7 @@ app.get('/api/health', (_req, res) => {
 
 app.use('/api/auth', authRouter)
 app.use('/api/marketplace', marketplaceRouter)
+app.use('/api/import-center', authUser, importCenterRouter)
 app.use('/api/agents', authUser, agentsRouter)
 app.use('/api/agents', authUser, chatRouter)
 app.use('/api/agents/:id/mcp', authUser, mcpRouter)
@@ -35,6 +40,9 @@ app.use('/api/agents/:id/skills', authUser, skillsRouter)
 app.use('/api/agents/:id/files', authUser, filesRouter)
 app.use('/api/system', authUser, systemRouter)
 app.use('/api', delegationsRouter)
+app.use('/api/workflows/webhooks', workflowWebhooksRouter)
+app.use('/api/workflows', authUser, workflowsRouter)
+app.use('/api/workflow-runs', authUser, workflowRunsRouter)
 
 app.use((err, _req, res, _next) => {
   logger.error('unhandled error:', err?.stack || err)

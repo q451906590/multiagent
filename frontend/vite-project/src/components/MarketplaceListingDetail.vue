@@ -7,7 +7,6 @@ const props = defineProps({
   templateId: { type: String, required: true },
 })
 
-const emit = defineEmits(['back'])
 const { state, loadDetail, installAgent } = useMarketplace()
 const { ensureLoaded } = useAgents()
 const loading = ref(false)
@@ -55,7 +54,6 @@ async function onInstall() {
 <template>
   <section class="detail">
     <header class="head">
-      <button class="back-btn" @click="emit('back')">返回市集</button>
       <h2>Agent 详情</h2>
     </header>
 
@@ -70,6 +68,9 @@ async function onInstall() {
         </div>
       </div>
       <p class="desc">{{ detail.description || '暂无简介' }}</p>
+      <div class="tag-row">
+        <span v-for="tag in detail.tags || []" :key="tag.id" class="tag">{{ tag.name }}</span>
+      </div>
       <p class="meta">模型：{{ detail.model || '-' }}</p>
 
       <div class="group">
@@ -107,19 +108,33 @@ async function onInstall() {
   gap: 12px;
 }
 
-.back-btn,
 .install-btn {
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--kd-line);
   border-radius: 999px;
   padding: 8px 14px;
-  background: var(--color-surface);
+  background: var(--kd-surface);
+}
+
+.tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tag {
+  border-radius: 999px;
+  border: 1px solid var(--kd-line);
+  background: var(--kd-hover);
+  color: var(--kd-text-soft);
+  font-size: 12px;
+  padding: 2px 8px;
 }
 
 .panel {
   margin-top: 16px;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--kd-line);
   border-radius: var(--radius-lg);
-  background: var(--color-surface);
+  background: var(--kd-surface);
   padding: 18px;
   display: grid;
   gap: 10px;
@@ -143,11 +158,11 @@ h3 {
 .desc,
 .meta {
   margin: 0;
-  color: var(--color-text-soft);
+  color: var(--kd-text-soft);
 }
 
 .group {
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid var(--kd-line);
   padding-top: 10px;
 }
 
@@ -158,18 +173,18 @@ h3 {
 
 .group p {
   margin: 0;
-  color: var(--color-text-soft);
+  color: var(--kd-text-soft);
   font-size: 13px;
 }
 
 .install-btn {
   width: fit-content;
-  border-color: var(--color-primary);
-  color: var(--color-primary);
+  border-color: var(--kd-primary);
+  color: var(--kd-primary);
 }
 
 .tip {
-  color: var(--color-text-soft);
+  color: var(--kd-text-soft);
 }
 
 .err {

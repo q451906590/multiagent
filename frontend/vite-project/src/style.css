@@ -1,4 +1,13 @@
 :root {
+  --kd-bg: #f3f4f6;
+  --kd-surface: #ffffff;
+  --kd-line: #dfe3eb;
+  --kd-text: #1f2329;
+  --kd-text-soft: #4e5969;
+  --kd-text-muted: #86909c;
+  --kd-primary: #0a6cff;
+  --kd-hover: #f2f3f5;
+
   --color-bg: #f6f7f9;
   --color-surface: #ffffff;
   --color-surface-soft: #f0f2f7;
@@ -26,8 +35,8 @@
   line-height: 1.5;
   font-weight: 400;
 
-  color: var(--color-text);
-  background-color: var(--color-bg);
+  color: var(--kd-text);
+  background-color: var(--kd-bg);
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -44,7 +53,7 @@ body {
   margin: 0;
   padding: 0;
   min-height: 100vh;
-  background-color: var(--color-bg);
+  background-color: var(--kd-bg);
 }
 
 body {

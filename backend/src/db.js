@@ -109,6 +109,7 @@ export function getDb() {
       hermes_missing_keys TEXT,
       mcp_json            TEXT,
       skills_json         TEXT,
+      tags_json           TEXT,
       visibility          TEXT NOT NULL DEFAULT 'public',
       status              TEXT NOT NULL DEFAULT 'published',
       install_count       INTEGER NOT NULL DEFAULT 0,
@@ -118,6 +119,20 @@ export function getDb() {
   `)
   db.exec('CREATE INDEX IF NOT EXISTS idx_agent_templates_publisher ON agent_templates(publisher_user_id, created_at DESC)')
   db.exec('CREATE INDEX IF NOT EXISTS idx_agent_templates_status_visibility ON agent_templates(status, visibility, created_at DESC)')
+  const templateColumns = db.prepare('PRAGMA table_info(agent_templates)').all()
+  if (!templateColumns.some((col) => col?.name === 'tags_json')) {
+    db.exec('ALTER TABLE agent_templates ADD COLUMN tags_json TEXT')
+  }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS marketplace_tags (
+      id          TEXT PRIMARY KEY,
+      name        TEXT NOT NULL UNIQUE,
+      created_at  INTEGER NOT NULL,
+      updated_at  INTEGER NOT NULL
+    );
+  `)
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_marketplace_tags_name ON marketplace_tags(name)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_marketplace_tags_created_at ON marketplace_tags(created_at DESC)')
   db.exec(`
     CREATE TABLE IF NOT EXISTS agent_installations (
       id                  TEXT PRIMARY KEY,
@@ -131,6 +146,56 @@ export function getDb() {
   db.exec('CREATE INDEX IF NOT EXISTS idx_agent_installations_template ON agent_installations(template_id, created_at DESC)')
   db.exec('CREATE INDEX IF NOT EXISTS idx_agent_installations_user ON agent_installations(user_id, created_at DESC)')
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_installations_template_user_agent ON agent_installations(template_id, user_id, agent_id)')
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS workflows (
+      id                  TEXT PRIMARY KEY,
+      user_id             TEXT NOT NULL,
+      name                TEXT NOT NULL,
+      description         TEXT,
+      canvas_definition   TEXT NOT NULL,
+      n8n_definition      TEXT,
+      n8n_workflow_id     TEXT,
+      publish_status      TEXT NOT NULL DEFAULT 'draft',
+      version             INTEGER NOT NULL DEFAULT 1,
+      created_at          INTEGER NOT NULL,
+      updated_at          INTEGER NOT NULL
+    );
+  `)
+  db.exec('CREATE INDEX IF NOT EXISTS idx_workflows_user_id_updated_at ON workflows(user_id, updated_at DESC)')
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS workflow_runs (
+      id                  TEXT PRIMARY KEY,
+      workflow_id         TEXT NOT NULL,
+      user_id             TEXT NOT NULL,
+      n8n_execution_id    TEXT,
+      trigger_source      TEXT,
+      status              TEXT NOT NULL,
+      input_json          TEXT,
+      output_json         TEXT,
+      error_message       TEXT,
+      started_at          INTEGER NOT NULL,
+      finished_at         INTEGER
+    );
+  `)
+  db.exec('CREATE INDEX IF NOT EXISTS idx_workflow_runs_workflow_id_started_at ON workflow_runs(workflow_id, started_at DESC)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_workflow_runs_user_id_started_at ON workflow_runs(user_id, started_at DESC)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_workflow_runs_n8n_execution_id ON workflow_runs(n8n_execution_id)')
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS workflow_run_events (
+      id                  TEXT PRIMARY KEY,
+      run_id              TEXT NOT NULL,
+      workflow_id         TEXT NOT NULL,
+      user_id             TEXT NOT NULL,
+      node_id             TEXT,
+      event_type          TEXT NOT NULL,
+      event_status        TEXT,
+      payload_json        TEXT,
+      error_message       TEXT,
+      created_at          INTEGER NOT NULL
+    );
+  `)
+  db.exec('CREATE INDEX IF NOT EXISTS idx_workflow_run_events_run_id_created_at ON workflow_run_events(run_id, created_at ASC)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_workflow_run_events_workflow_id_created_at ON workflow_run_events(workflow_id, created_at ASC)')
   return db
 }
 
@@ -323,6 +388,7 @@ function rowToAgentTemplate(row) {
     hermesMissingKeys: parseJsonArray(row.hermes_missing_keys),
     mcpList: parseJsonArray(row.mcp_json),
     skillsList: parseJsonArray(row.skills_json),
+    tagIds: parseJsonArray(row.tags_json),
     visibility: row.visibility || 'public',
     status: row.status || 'published',
     installCount: Number(row.install_count || 0),
@@ -342,6 +408,79 @@ export function listPublicAgentTemplates() {
     )
     .all()
   return rows.map(rowToAgentTemplate)
+}
+
+function normalizeTagName(name) {
+  return String(name || '').trim().replace(/\s+/g, ' ').slice(0, 24)
+}
+
+function rowToMarketplaceTag(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    name: row.name,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+export function listMarketplaceTags() {
+  const rows = getDb()
+    .prepare('SELECT * FROM marketplace_tags ORDER BY created_at ASC')
+    .all()
+  return rows.map(rowToMarketplaceTag)
+}
+
+export function getMarketplaceTagById(id) {
+  const row = getDb()
+    .prepare('SELECT * FROM marketplace_tags WHERE id = ?')
+    .get(id)
+  return rowToMarketplaceTag(row)
+}
+
+export function getMarketplaceTagByName(name) {
+  const normalized = normalizeTagName(name)
+  if (!normalized) return null
+  const row = getDb()
+    .prepare('SELECT * FROM marketplace_tags WHERE name = ?')
+    .get(normalized)
+  return rowToMarketplaceTag(row)
+}
+
+export function insertMarketplaceTag(tag) {
+  const normalized = normalizeTagName(tag?.name)
+  getDb()
+    .prepare(
+      `INSERT INTO marketplace_tags (id, name, created_at, updated_at)
+       VALUES (@id, @name, @created_at, @updated_at)`
+    )
+    .run({
+      id: tag.id,
+      name: normalized,
+      created_at: tag.createdAt,
+      updated_at: tag.updatedAt,
+    })
+}
+
+export function updateMarketplaceTag(id, fields) {
+  const sets = []
+  const params = { id }
+  if (typeof fields?.name === 'string') {
+    sets.push('name = @name')
+    params.name = normalizeTagName(fields.name)
+  }
+  if (typeof fields?.updatedAt === 'number') {
+    sets.push('updated_at = @updated_at')
+    params.updated_at = fields.updatedAt
+  }
+  if (sets.length === 0) return
+  getDb()
+    .prepare(`UPDATE marketplace_tags SET ${sets.join(', ')} WHERE id = @id`)
+    .run(params)
+}
+
+export function deleteMarketplaceTag(id) {
+  getDb().prepare('DELETE FROM marketplace_tags WHERE id = ?').run(id)
 }
 
 export function getPublicAgentTemplateById(id) {
@@ -388,11 +527,11 @@ export function insertAgentTemplate(template) {
       `INSERT INTO agent_templates (
         id, publisher_user_id, source_agent_id, title, slug, description, emoji, role,
         system_prompt, agents_md, model, hermes_config, hermes_env_sanitized, hermes_missing_keys,
-        mcp_json, skills_json, visibility, status, install_count, created_at, updated_at
+        mcp_json, skills_json, tags_json, visibility, status, install_count, created_at, updated_at
       ) VALUES (
         @id, @publisher_user_id, @source_agent_id, @title, @slug, @description, @emoji, @role,
         @system_prompt, @agents_md, @model, @hermes_config, @hermes_env_sanitized, @hermes_missing_keys,
-        @mcp_json, @skills_json, @visibility, @status, @install_count, @created_at, @updated_at
+        @mcp_json, @skills_json, @tags_json, @visibility, @status, @install_count, @created_at, @updated_at
       )`
     )
     .run({
@@ -412,6 +551,7 @@ export function insertAgentTemplate(template) {
       hermes_missing_keys: JSON.stringify(template.hermesMissingKeys || []),
       mcp_json: JSON.stringify(template.mcpList || []),
       skills_json: JSON.stringify(template.skillsList || []),
+      tags_json: JSON.stringify(template.tagIds || []),
       visibility: template.visibility || 'public',
       status: template.status || 'published',
       install_count: Number(template.installCount || 0),
@@ -436,6 +576,7 @@ export function updateAgentTemplate(id, fields, publisherUserId) {
     hermesMissingKeys: 'hermes_missing_keys',
     mcpList: 'mcp_json',
     skillsList: 'skills_json',
+    tagIds: 'tags_json',
     visibility: 'visibility',
     status: 'status',
     installCount: 'install_count',
@@ -447,7 +588,7 @@ export function updateAgentTemplate(id, fields, publisherUserId) {
     const col = map[k]
     if (!col) continue
     sets.push(`${col} = @${col}`)
-    if (['hermes_missing_keys', 'mcp_json', 'skills_json'].includes(col)) {
+    if (['hermes_missing_keys', 'mcp_json', 'skills_json', 'tags_json'].includes(col)) {
       params[col] = JSON.stringify(v || [])
     } else {
       params[col] = v
@@ -514,6 +655,46 @@ export function listAgentInstallationsByUser(userId) {
     )
     .all(uid)
   return rows.map(rowToAgentInstallation)
+}
+
+export function listImportedAgentsByUser(userId) {
+  const uid = normalizeUserId(userId)
+  const rows = getDb()
+    .prepare(
+      `SELECT
+        i.id AS installation_id,
+        i.template_id,
+        i.agent_id,
+        i.installed_version,
+        i.created_at AS installed_at,
+        a.name AS agent_name,
+        a.emoji AS agent_emoji,
+        a.model AS agent_model,
+        t.title AS template_title,
+        t.tags_json AS template_tags_json,
+        u.username AS publisher_username
+      FROM agent_installations i
+      INNER JOIN agents a ON a.id = i.agent_id
+      LEFT JOIN agent_templates t ON t.id = i.template_id
+      LEFT JOIN users u ON u.id = t.publisher_user_id
+      WHERE i.user_id = @user_id
+      ORDER BY i.created_at DESC`
+    )
+    .all({ user_id: uid })
+
+  return rows.map((row) => ({
+    id: row.installation_id,
+    templateId: row.template_id,
+    agentId: row.agent_id,
+    installedVersion: row.installed_version || '',
+    installedAt: row.installed_at,
+    agentName: row.agent_name || '',
+    agentEmoji: row.agent_emoji || '🤖',
+    agentModel: row.agent_model || '',
+    templateTitle: row.template_title || '',
+    publisherUsername: row.publisher_username || '',
+    tagIds: parseJsonArray(row.template_tags_json),
+  }))
 }
 
 function rowToDelegationKey(row) {
@@ -643,4 +824,290 @@ export function recordDelegationKeyUsage(id, { usedAt, callerId }) {
 
 export function deleteDelegationKey(id) {
   getDb().prepare('DELETE FROM agent_delegation_keys WHERE id = ?').run(id)
+}
+
+function parseJsonObject(text) {
+  const raw = String(text || '').trim()
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' ? parsed : null
+  } catch (_) {
+    return null
+  }
+}
+
+function rowToWorkflow(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    userId: row.user_id,
+    name: row.name,
+    description: row.description || '',
+    canvasDefinition: parseJsonObject(row.canvas_definition) || { nodes: [], edges: [] },
+    n8nDefinition: parseJsonObject(row.n8n_definition),
+    n8nWorkflowId: row.n8n_workflow_id || '',
+    publishStatus: row.publish_status || 'draft',
+    version: Number(row.version || 1),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+function rowToWorkflowRun(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    workflowId: row.workflow_id,
+    userId: row.user_id,
+    n8nExecutionId: row.n8n_execution_id || '',
+    triggerSource: row.trigger_source || '',
+    status: row.status,
+    input: parseJsonObject(row.input_json),
+    output: parseJsonObject(row.output_json),
+    errorMessage: row.error_message || '',
+    startedAt: row.started_at,
+    finishedAt: row.finished_at ?? null,
+  }
+}
+
+function rowToWorkflowRunEvent(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    runId: row.run_id,
+    workflowId: row.workflow_id,
+    userId: row.user_id,
+    nodeId: row.node_id || '',
+    eventType: row.event_type,
+    eventStatus: row.event_status || '',
+    payload: parseJsonObject(row.payload_json),
+    errorMessage: row.error_message || '',
+    createdAt: row.created_at,
+  }
+}
+
+export function listWorkflowsByUser(userId) {
+  const uid = normalizeUserId(userId)
+  return getDb()
+    .prepare(
+      `SELECT *
+       FROM workflows
+       WHERE user_id = ?
+       ORDER BY updated_at DESC`
+    )
+    .all(uid)
+    .map(rowToWorkflow)
+}
+
+export function getWorkflowById(id, userId) {
+  const uid = normalizeUserId(userId)
+  const row = getDb()
+    .prepare('SELECT * FROM workflows WHERE id = ? AND user_id = ?')
+    .get(id, uid)
+  return rowToWorkflow(row)
+}
+
+export function insertWorkflow(workflow) {
+  const uid = normalizeUserId(workflow.userId)
+  getDb()
+    .prepare(
+      `INSERT INTO workflows (
+        id, user_id, name, description, canvas_definition, n8n_definition, n8n_workflow_id,
+        publish_status, version, created_at, updated_at
+      ) VALUES (
+        @id, @user_id, @name, @description, @canvas_definition, @n8n_definition, @n8n_workflow_id,
+        @publish_status, @version, @created_at, @updated_at
+      )`
+    )
+    .run({
+      id: workflow.id,
+      user_id: uid,
+      name: workflow.name,
+      description: workflow.description || null,
+      canvas_definition: JSON.stringify(workflow.canvasDefinition || { nodes: [], edges: [] }),
+      n8n_definition: workflow.n8nDefinition ? JSON.stringify(workflow.n8nDefinition) : null,
+      n8n_workflow_id: workflow.n8nWorkflowId || null,
+      publish_status: workflow.publishStatus || 'draft',
+      version: Number(workflow.version || 1),
+      created_at: workflow.createdAt,
+      updated_at: workflow.updatedAt,
+    })
+}
+
+export function updateWorkflow(id, userId, fields) {
+  const uid = normalizeUserId(userId)
+  const map = {
+    name: 'name',
+    description: 'description',
+    canvasDefinition: 'canvas_definition',
+    n8nDefinition: 'n8n_definition',
+    n8nWorkflowId: 'n8n_workflow_id',
+    publishStatus: 'publish_status',
+    version: 'version',
+    updatedAt: 'updated_at',
+  }
+  const sets = []
+  const params = { id, user_id: uid }
+  for (const [key, value] of Object.entries(fields || {})) {
+    if (value === undefined) continue
+    const col = map[key]
+    if (!col) continue
+    sets.push(`${col} = @${col}`)
+    if (col === 'canvas_definition' || col === 'n8n_definition') {
+      params[col] = value ? JSON.stringify(value) : null
+      continue
+    }
+    params[col] = value
+  }
+  if (!sets.length) return
+  getDb()
+    .prepare(
+      `UPDATE workflows
+       SET ${sets.join(', ')}
+       WHERE id = @id AND user_id = @user_id`
+    )
+    .run(params)
+}
+
+export function deleteWorkflow(id, userId) {
+  const uid = normalizeUserId(userId)
+  getDb().prepare('DELETE FROM workflows WHERE id = ? AND user_id = ?').run(id, uid)
+}
+
+export function insertWorkflowRun(run) {
+  const uid = normalizeUserId(run.userId)
+  getDb()
+    .prepare(
+      `INSERT INTO workflow_runs (
+        id, workflow_id, user_id, n8n_execution_id, trigger_source, status,
+        input_json, output_json, error_message, started_at, finished_at
+      ) VALUES (
+        @id, @workflow_id, @user_id, @n8n_execution_id, @trigger_source, @status,
+        @input_json, @output_json, @error_message, @started_at, @finished_at
+      )`
+    )
+    .run({
+      id: run.id,
+      workflow_id: run.workflowId,
+      user_id: uid,
+      n8n_execution_id: run.n8nExecutionId || null,
+      trigger_source: run.triggerSource || null,
+      status: run.status,
+      input_json: run.input ? JSON.stringify(run.input) : null,
+      output_json: run.output ? JSON.stringify(run.output) : null,
+      error_message: run.errorMessage || null,
+      started_at: run.startedAt,
+      finished_at: run.finishedAt ?? null,
+    })
+}
+
+export function updateWorkflowRun(id, userId, fields) {
+  const uid = normalizeUserId(userId)
+  const map = {
+    n8nExecutionId: 'n8n_execution_id',
+    status: 'status',
+    input: 'input_json',
+    output: 'output_json',
+    errorMessage: 'error_message',
+    finishedAt: 'finished_at',
+  }
+  const sets = []
+  const params = { id, user_id: uid }
+  for (const [key, value] of Object.entries(fields || {})) {
+    if (value === undefined) continue
+    const col = map[key]
+    if (!col) continue
+    sets.push(`${col} = @${col}`)
+    if (col === 'input_json' || col === 'output_json') {
+      params[col] = value ? JSON.stringify(value) : null
+      continue
+    }
+    params[col] = value
+  }
+  if (!sets.length) return
+  getDb()
+    .prepare(
+      `UPDATE workflow_runs
+       SET ${sets.join(', ')}
+       WHERE id = @id AND user_id = @user_id`
+    )
+    .run(params)
+}
+
+export function getWorkflowRunById(id, userId) {
+  const uid = normalizeUserId(userId)
+  const row = getDb()
+    .prepare('SELECT * FROM workflow_runs WHERE id = ? AND user_id = ?')
+    .get(id, uid)
+  return rowToWorkflowRun(row)
+}
+
+export function getWorkflowRunByExecutionId(n8nExecutionId) {
+  const row = getDb()
+    .prepare('SELECT * FROM workflow_runs WHERE n8n_execution_id = ?')
+    .get(String(n8nExecutionId || '').trim())
+  return rowToWorkflowRun(row)
+}
+
+export function listWorkflowRunsByWorkflow(workflowId, userId, { limit = 30 } = {}) {
+  const uid = normalizeUserId(userId)
+  const rows = getDb()
+    .prepare(
+      `SELECT *
+       FROM workflow_runs
+       WHERE workflow_id = @workflow_id AND user_id = @user_id
+       ORDER BY started_at DESC
+       LIMIT @limit`
+    )
+    .all({
+      workflow_id: workflowId,
+      user_id: uid,
+      limit: Math.max(1, Number(limit || 30)),
+    })
+  return rows.map(rowToWorkflowRun)
+}
+
+export function insertWorkflowRunEvent(event) {
+  const uid = normalizeUserId(event.userId)
+  getDb()
+    .prepare(
+      `INSERT INTO workflow_run_events (
+        id, run_id, workflow_id, user_id, node_id, event_type, event_status,
+        payload_json, error_message, created_at
+      ) VALUES (
+        @id, @run_id, @workflow_id, @user_id, @node_id, @event_type, @event_status,
+        @payload_json, @error_message, @created_at
+      )`
+    )
+    .run({
+      id: event.id,
+      run_id: event.runId,
+      workflow_id: event.workflowId,
+      user_id: uid,
+      node_id: event.nodeId || null,
+      event_type: event.eventType,
+      event_status: event.eventStatus || null,
+      payload_json: event.payload ? JSON.stringify(event.payload) : null,
+      error_message: event.errorMessage || null,
+      created_at: event.createdAt,
+    })
+}
+
+export function listWorkflowRunEvents(runId, userId, { limit = 200 } = {}) {
+  const uid = normalizeUserId(userId)
+  const rows = getDb()
+    .prepare(
+      `SELECT *
+       FROM workflow_run_events
+       WHERE run_id = @run_id AND user_id = @user_id
+       ORDER BY created_at ASC
+       LIMIT @limit`
+    )
+    .all({
+      run_id: runId,
+      user_id: uid,
+      limit: Math.max(1, Number(limit || 200)),
+    })
+  return rows.map(rowToWorkflowRunEvent)
 }
