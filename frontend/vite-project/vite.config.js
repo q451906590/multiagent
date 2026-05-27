@@ -7,8 +7,8 @@ export default defineConfig(({ mode }) => {
   const apiTarget = (
     process.env.VITE_API_TARGET ||
     env.VITE_API_TARGET ||
-    'http://10.13.246.56:8080'
-  ).trim() || 'http://10.13.246.56:8080'
+    'http://localhost:8080'
+  ).trim() || 'http://localhost:8080'
 
   return {
     plugins: [vue()],

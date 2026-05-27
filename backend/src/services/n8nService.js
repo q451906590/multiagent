@@ -1,11 +1,9 @@
 import { config } from '../config.js'
+import { logger } from '../utils/logger.js'
 
 function assertConfigured() {
   if (!config.n8nBaseUrl) {
     throw new Error('n8n is not configured: N8N_BASE_URL is required')
-  }
-  if (!config.n8nApiKey) {
-    throw new Error('n8n is not configured: N8N_API_KEY is required')
   }
 }
 
@@ -15,12 +13,13 @@ function buildUrl(pathname) {
 
 async function requestN8n(pathname, { method = 'GET', body, allow404 = false } = {}) {
   assertConfigured()
+  const headers = {
+    'Content-Type': 'application/json',
+  }
+  if (config.n8nApiKey) headers['X-N8N-API-KEY'] = config.n8nApiKey
   const res = await fetch(buildUrl(pathname), {
     method,
-    headers: {
-      'Content-Type': 'application/json',
-      'X-N8N-API-KEY': config.n8nApiKey,
-    },
+    headers,
     body: body ? JSON.stringify(body) : undefined,
   })
   if (allow404 && res.status === 404) return null
@@ -68,8 +67,6 @@ export async function upsertN8nWorkflow({ n8nWorkflowId, name, n8nDefinition, ve
       executionTimeout: 3600,
       ...(n8nDefinition?.settings && typeof n8nDefinition.settings === 'object' ? n8nDefinition.settings : {}),
     },
-    tags: [config.n8nWorkflowTag, `workflow-version:${version || 1}`],
-    active: false,
   }
 
   if (!n8nWorkflowId) {
@@ -82,7 +79,7 @@ export async function upsertN8nWorkflow({ n8nWorkflowId, name, n8nDefinition, ve
 
   const updated = await requestN8n(`/api/v1/workflows/${encodeURIComponent(n8nWorkflowId)}`, {
     method: 'PUT',
-    body: { ...payload, id: n8nWorkflowId },
+    body: payload,
   })
   return {
     id: String(updated?.id || updated?.data?.id || n8nWorkflowId).trim(),
@@ -98,11 +95,15 @@ export async function setN8nWorkflowActive(n8nWorkflowId, active) {
   try {
     await requestN8n(actionPath, { method: 'POST' })
     return
-  } catch (_) {
-    await requestN8n(`/api/v1/workflows/${id}`, {
-      method: 'PATCH',
-      body: { active: desired },
-    })
+  } catch (activateErr) {
+    const message = String(activateErr?.message || '').toLowerCase()
+    // For manually-triggered workflows, n8n "active" requires trigger nodes.
+    // Our runtime triggers via API, so treat this as a valid no-op activation.
+    if (desired && message.includes('no trigger node')) {
+      logger.warn(`[n8n] workflow ${n8nWorkflowId} has no trigger node; treat activate as no-op for manual run mode`)
+      return
+    }
+    throw new Error(`failed to set workflow active state: ${activateErr?.message || activateErr}`)
   }
 }
 
@@ -116,27 +117,10 @@ export async function deleteN8nWorkflow(n8nWorkflowId) {
 
 export async function triggerN8nWorkflow({ n8nWorkflowId, payload }) {
   if (!n8nWorkflowId) throw new Error('n8nWorkflowId is required')
-  const id = encodeURIComponent(n8nWorkflowId)
-  const attempts = [
-    `/api/v1/workflows/${id}/run`,
-    `/api/v1/workflows/${id}/execute`,
-  ]
-  let lastErr = null
-  for (const path of attempts) {
-    try {
-      const response = await requestN8n(path, { method: 'POST', body: payload || {} })
-      return {
-        executionId: pickExecutionId(response),
-        raw: response,
-        triggerPath: path,
-      }
-    } catch (err) {
-      lastErr = err
-    }
-  }
-
   if (config.n8nWebhookBaseUrl) {
-    const webhookUrl = `${config.n8nWebhookBaseUrl}/multiagent-workflow/${encodeURIComponent(n8nWorkflowId)}`
+    const localWorkflowId = String(payload?.workflowId || '').trim()
+    const webhookPathId = localWorkflowId || String(n8nWorkflowId || '').trim()
+    const webhookUrl = `${config.n8nWebhookBaseUrl}/multiagent-workflow/${encodeURIComponent(webhookPathId)}`
     const res = await fetch(webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -156,6 +140,25 @@ export async function triggerN8nWorkflow({ n8nWorkflowId, payload }) {
       executionId: pickExecutionId(data),
       raw: data,
       triggerPath: webhookUrl,
+    }
+  }
+
+  const id = encodeURIComponent(n8nWorkflowId)
+  const attempts = [
+    `/api/v1/workflows/${id}/run`,
+    `/api/v1/workflows/${id}/execute`,
+  ]
+  let lastErr = null
+  for (const path of attempts) {
+    try {
+      const response = await requestN8n(path, { method: 'POST', body: payload || {} })
+      return {
+        executionId: pickExecutionId(response),
+        raw: response,
+        triggerPath: path,
+      }
+    } catch (err) {
+      lastErr = err
     }
   }
 

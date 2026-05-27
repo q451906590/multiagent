@@ -47,7 +47,7 @@ function normalizeRelativeFiles(input) {
   )]
 }
 
-function buildMessageWithContextFiles(content, { uploadedFiles }) {
+function buildMessageWithContextFiles(content, { uploadedFiles, receivedFiles, deliverableSpecs, retryHint }) {
   const deliveryDir = config.deliveryDirInContainer
   const receivedDir = config.receivedDirInContainer
   const uploadDir = config.uploadInboxDirInContainer
@@ -57,6 +57,24 @@ function buildMessageWithContextFiles(content, { uploadedFiles }) {
     `System: output directory is ${deliveryDir}.`,
     `System: received files directory is ${receivedDir}.`,
   ]
+  const received = Array.isArray(receivedFiles) ? receivedFiles.filter(Boolean) : []
+  const deliverables = Array.isArray(deliverableSpecs) ? deliverableSpecs.filter(Boolean) : []
+
+  if (received.length) {
+    runtimeRules.push(
+      'System: required input files copied to received directory:',
+      ...received.map((file) => `- ${file}`),
+    )
+  }
+  if (deliverables.length) {
+    runtimeRules.push(
+      'System: required deliverables (strict filenames under output directory):',
+      ...deliverables.map((file) => `- ${file}`),
+    )
+  }
+  if (retryHint) {
+    runtimeRules.push(`System: retry hint: ${String(retryHint).trim()}`)
+  }
   if (!uploadedFiles.length) {
     return `${runtimeRules.join('\n')}\n\nUser message:\n${content}`
   }
@@ -79,6 +97,9 @@ export async function executeAgentNode({
   agentId,
   prompt,
   uploadedFiles,
+  receivedFiles,
+  deliverableSpecs,
+  retryHint,
   timeoutMs = config.chatTimeoutMs,
 }) {
   const agent = getAgent(agentId, userId)
@@ -93,7 +114,12 @@ export async function executeAgentNode({
   const containerName = containerNameFor(agentId)
   await ensureContainerRunning(containerName)
   const cmd = buildHermesInvocation(
-    buildMessageWithContextFiles(content, { uploadedFiles: normalizedFiles })
+    buildMessageWithContextFiles(content, {
+      uploadedFiles: normalizedFiles,
+      receivedFiles,
+      deliverableSpecs,
+      retryHint,
+    })
   )
 
   let stdout = ''

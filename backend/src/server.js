@@ -50,8 +50,14 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ error: err?.message || 'internal_error' })
 })
 
-getDb()
+async function startServer() {
+  getDb()
+  app.listen(config.port, () => {
+    logger.info(`backend listening on http://localhost:${config.port}`)
+  })
+}
 
-app.listen(config.port, () => {
-  logger.info(`backend listening on http://localhost:${config.port}`)
+startServer().catch((err) => {
+  logger.error('failed to start backend:', err?.stack || err)
+  process.exitCode = 1
 })

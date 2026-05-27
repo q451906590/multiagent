@@ -163,3 +163,60 @@ export function handleN8nRunEvent(payload) {
 
   return getWorkflowRunById(run.id, run.userId)
 }
+
+export function appendWorkflowRunEvent({
+  runId,
+  userId,
+  workflowId,
+  nodeId,
+  eventType,
+  eventStatus = '',
+  payload = {},
+  errorMessage = '',
+}) {
+  const run = getWorkflowRunById(runId, userId)
+  if (!run) return null
+  insertWorkflowRunEvent({
+    id: newId('wfevt'),
+    runId: run.id,
+    workflowId: workflowId || run.workflowId,
+    userId: run.userId,
+    nodeId: String(nodeId || ''),
+    eventType: String(eventType || 'custom_event'),
+    eventStatus: String(eventStatus || ''),
+    payload: payload && typeof payload === 'object' ? payload : {},
+    errorMessage: String(errorMessage || ''),
+    createdAt: now(),
+  })
+  return getWorkflowRunById(run.id, run.userId)
+}
+
+export function markWorkflowRunFailed({
+  runId,
+  userId,
+  workflowId,
+  nodeId,
+  errorMessage,
+  payload = {},
+}) {
+  const run = getWorkflowRunById(runId, userId)
+  if (!run) return null
+  updateWorkflowRun(run.id, run.userId, {
+    status: 'failed',
+    errorMessage: String(errorMessage || 'workflow_node_failed'),
+    finishedAt: now(),
+  })
+  insertWorkflowRunEvent({
+    id: newId('wfevt'),
+    runId: run.id,
+    workflowId: workflowId || run.workflowId,
+    userId: run.userId,
+    nodeId: String(nodeId || ''),
+    eventType: 'run_failed',
+    eventStatus: 'failed',
+    payload: payload && typeof payload === 'object' ? payload : {},
+    errorMessage: String(errorMessage || 'workflow_node_failed'),
+    createdAt: now(),
+  })
+  return getWorkflowRunById(run.id, run.userId)
+}

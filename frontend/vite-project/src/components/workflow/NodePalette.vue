@@ -1,5 +1,9 @@
 <script setup>
 import { computed } from 'vue'
+import {
+  baseNodeDefinitions,
+  buildAgentNodeDefinitions,
+} from '../../features/workflow/nodeDefinitions.js'
 
 const props = defineProps({
   agents: { type: Array, default: () => [] },
@@ -7,25 +11,10 @@ const props = defineProps({
 
 const emit = defineEmits(['add-node'])
 
-const baseNodes = computed(() => ([
-  { type: 'if', label: '条件分支 IF', icon: '◇' },
-  { type: 'switch', label: '分支 Switch', icon: '⎇' },
-  { type: 'merge', label: '合并 Merge', icon: '⋈' },
-  { type: 'wait', label: '等待 Wait', icon: '◴' },
-]))
+const baseNodes = computed(() => baseNodeDefinitions)
 
 const agentNodes = computed(() =>
-  (Array.isArray(props.agents) ? props.agents : []).map((agent) => ({
-    type: 'agent',
-    label: `${agent.emoji || '🤖'} ${agent.name || agent.id}`,
-    icon: '🤖',
-    data: {
-      agentId: agent.id,
-      prompt: '',
-      uploadedFiles: [],
-      timeoutMs: 0,
-    },
-  }))
+  buildAgentNodeDefinitions(props.agents)
 )
 
 function onAdd(definition) {
