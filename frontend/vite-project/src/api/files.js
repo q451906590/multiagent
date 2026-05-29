@@ -6,7 +6,7 @@ export async function listAgentFiles(agentId, { scope = 'delivery' } = {}) {
   return jsonOr(res)
 }
 
-export async function deliverAgentFiles(sourceAgentId, { targetAgentId, files }) {
+export async function deliverAgentFiles(sourceAgentId, { targetAgentId, files } = {}) {
   const res = await apiFetch(`/api/agents/${encodeURIComponent(sourceAgentId)}/files/deliver`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

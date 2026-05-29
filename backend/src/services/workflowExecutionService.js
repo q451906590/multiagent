@@ -26,6 +26,53 @@ function sanitizeStatus(input, fallback = 'running') {
   return allowed.has(value) ? value : fallback
 }
 
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function buildNodeLogs(events) {
+  const list = Array.isArray(events) ? events : []
+  const map = new Map()
+  for (const event of list) {
+    const nodeId = String(event?.nodeId || '').trim()
+    if (!nodeId) continue
+    if (!map.has(nodeId)) {
+      map.set(nodeId, {
+        nodeId,
+        status: '',
+        input: null,
+        output: null,
+        agentConversation: null,
+        events: [],
+      })
+    }
+    const item = map.get(nodeId)
+    const payload = isPlainObject(event?.payload) ? event.payload : {}
+    const eventStatus = String(event?.eventStatus || '').trim()
+    if (eventStatus) item.status = eventStatus
+    if ('nodeInput' in payload) {
+      item.input = payload.nodeInput
+    } else if (event?.eventType === 'node_input' && 'input' in payload) {
+      item.input = payload.input
+    }
+    if ('nodeOutput' in payload) {
+      item.output = payload.nodeOutput
+    } else if (event?.eventType === 'node_output' && 'output' in payload) {
+      item.output = payload.output
+    }
+    if (isPlainObject(payload.agentConversation)) {
+      item.agentConversation = payload.agentConversation
+    }
+    item.events.push({
+      eventType: String(event?.eventType || ''),
+      eventStatus,
+      createdAt: Number(event?.createdAt || 0),
+      errorMessage: String(event?.errorMessage || ''),
+    })
+  }
+  return [...map.values()]
+}
+
 export async function triggerWorkflowRun({ workflowId, userId, input, triggerSource = 'manual' }) {
   const workflow = getWorkflowById(workflowId, userId)
   if (!workflow) throw new Error('workflow not found')
@@ -117,9 +164,11 @@ export function getWorkflowRunDetail(runId, userId) {
   const run = getWorkflowRunById(runId, userId)
   if (!run) return null
   const events = listWorkflowRunEvents(runId, userId, { limit: 500 })
+  const nodeLogs = buildNodeLogs(events)
   return {
     ...run,
     events,
+    nodeLogs,
   }
 }
 

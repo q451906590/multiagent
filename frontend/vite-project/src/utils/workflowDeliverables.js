@@ -9,6 +9,9 @@ function normalizeRelPath(rawPath) {
   return parts.join('/')
 }
 
+const START_TEXT_DELIVERABLE = 'user-input'
+const START_UPLOADS_DELIVERABLE = 'user-uploaded-files'
+
 export function normalizeDeliverFiles(input) {
   const items = Array.isArray(input) ? input : []
   const out = []
@@ -58,6 +61,29 @@ export function buildDeliverableCatalog(allNodes, { excludeNodeId = '' } = {}) {
 
   for (const node of nodes) {
     const nodeType = String(node?.type || '').trim()
+    if (nodeType === 'start.userInput') {
+      const nodeId = String(node?.id || '').trim()
+      if (!nodeId || nodeId === excludeNodeId) continue
+      const sourceNodeLabel = String(node?.label || node?.data?.label || nodeId)
+      const startDeliverables = [
+        { path: START_TEXT_DELIVERABLE, displayName: '用户输入文案' },
+        { path: START_UPLOADS_DELIVERABLE, displayName: '用户上传文件' },
+      ]
+      for (const deliverable of startDeliverables) {
+        const itemPath = normalizeRelPath(deliverable.path) || deliverable.path
+        const key = `${nodeId}::${itemPath}`
+        if (seenRef.has(key)) continue
+        seenRef.add(key)
+        items.push({
+          sourceNodeId: nodeId,
+          sourceAgentId: '',
+          sourceNodeLabel,
+          path: itemPath,
+          displayName: deliverable.displayName,
+        })
+      }
+      continue
+    }
     if (nodeType !== 'agent' && nodeType !== 'agent.chat') continue
     const nodeId = String(node?.id || '').trim()
     if (!nodeId || nodeId === excludeNodeId) continue
@@ -85,7 +111,9 @@ export function buildDeliverableCatalog(allNodes, { excludeNodeId = '' } = {}) {
       return {
         ...item,
         hasAgentConflict,
-        displayLabel: `${item.sourceNodeLabel} / ${item.path}`,
+        displayLabel: item.displayName
+          ? `${item.sourceNodeLabel} / ${item.displayName}`
+          : `${item.sourceNodeLabel} / ${item.path}`,
       }
     })
     .sort((a, b) => a.displayLabel.localeCompare(b.displayLabel))

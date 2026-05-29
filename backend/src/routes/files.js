@@ -83,8 +83,7 @@ function resolveScopeRootDir(scope) {
   return config.deliveryDirInContainer
 }
 
-async function readAgentFileBuffer(agentId, relPath, scope) {
-  const rootDir = resolveScopeRootDir(scope)
+async function readAgentFileBuffer(agentId, relPath, { rootDir }) {
   const absPath = path.posix.join(rootDir, relPath)
   const containerName = await ensureContainerReady(agentId)
   const container = await findContainer(containerName)
@@ -287,7 +286,11 @@ router.delete('/', async (req, res) => {
   }
 
   try {
-    const result = await deleteAgentFileByScope({ agentId, scope, relPath })
+    const result = await deleteAgentFileByScope({
+      agentId,
+      scope,
+      relPath,
+    })
     if (!result.deleted) {
       return res.status(404).json({ error: 'file_not_found', path: relPath })
     }
@@ -319,7 +322,8 @@ router.get('/raw', async (req, res) => {
   }
 
   try {
-    const fileBuffer = await readAgentFileBuffer(agentId, relPath, scope)
+    const rootDir = resolveScopeRootDir(scope)
+    const fileBuffer = await readAgentFileBuffer(agentId, relPath, { rootDir })
     res.setHeader('Content-Type', detectContentType(relPath))
     res.setHeader('Cache-Control', 'no-store')
     res.send(fileBuffer)
@@ -361,7 +365,8 @@ router.post('/download-zip', async (req, res) => {
     const failed = []
     for (const relPath of files) {
       try {
-        const fileBuffer = await readAgentFileBuffer(agentId, relPath, scope)
+        const rootDir = resolveScopeRootDir(scope)
+        const fileBuffer = await readAgentFileBuffer(agentId, relPath, { rootDir })
         zip.file(relPath, fileBuffer)
       } catch (err) {
         failed.push({ path: relPath, error: err?.message || String(err) })
@@ -414,7 +419,8 @@ router.get('/preview/:scope/*', async (req, res) => {
   }
 
   try {
-    const fileBuffer = await readAgentFileBuffer(agentId, relPath, scope)
+    const rootDir = resolveScopeRootDir(scope)
+    const fileBuffer = await readAgentFileBuffer(agentId, relPath, { rootDir })
     res.setHeader('Content-Type', detectContentType(relPath))
     res.setHeader('Cache-Control', 'no-store')
     res.send(fileBuffer)

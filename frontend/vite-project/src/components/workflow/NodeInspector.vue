@@ -1,5 +1,5 @@
 <script setup>
-import { computed, reactive, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import {
   buildDeliverableCatalog,
   deliverableRefKey,
@@ -7,6 +7,7 @@ import {
   normalizeInputDeliverables,
 } from '../../utils/workflowDeliverables.js'
 import { getDefaultNodeParameters } from '../../features/workflow/nodeDefinitions.js'
+import { uploadWorkflowInputFiles } from '../../api/workflows.js'
 
 const props = defineProps({
   node: { type: Object, default: null },
@@ -14,6 +15,7 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['update-node', 'delete-node'])
+const startUploadInputEl = ref(null)
 
 const form = reactive({
   label: '',
@@ -41,6 +43,11 @@ const form = reactive({
   advancedMode: false,
   genericParametersText: '{}',
   genericParametersError: '',
+  startInputText: '',
+  startInputUploadId: '',
+  startInputUploadedFiles: [],
+  startInputUploading: false,
+  startInputUploadError: '',
 })
 
 const isAgentNode = computed(() => {
@@ -53,7 +60,10 @@ const isSwitchNode = computed(() => nodeType.value === 'switch')
 const isMergeNode = computed(() => nodeType.value === 'merge')
 const isWaitNode = computed(() => nodeType.value === 'wait')
 const isResultNode = computed(() => nodeType.value === 'result')
-const isGenericNode = computed(() => !isAgentNode.value && !isResultNode.value && Boolean(props.node))
+const isStartNode = computed(() => nodeType.value === 'start.userinput')
+const isGenericNode = computed(() =>
+  !isAgentNode.value && !isResultNode.value && !isStartNode.value && Boolean(props.node)
+)
 
 const deliverableCatalog = computed(() =>
   buildDeliverableCatalog(props.allNodes, { excludeNodeId: String(props.node?.id || '') })
@@ -181,6 +191,16 @@ watch(
     form.selectedInputRefs = normalizeInputDeliverables(next?.data?.inputDeliverables)
     form.selectedResultRefs = normalizeInputDeliverables(next?.data?.resultDeliverables)
     form.archiveName = String(next?.data?.archiveName || 'workflow-result.zip')
+    form.startInputText = String(next?.data?.startInputText || '')
+    form.startInputUploadId = String(next?.data?.startInputUploadId || '')
+    form.startInputUploadedFiles = Array.isArray(next?.data?.startInputUploadedFiles)
+      ? next.data.startInputUploadedFiles.map((item) => ({
+        path: String(item?.path || ''),
+        name: String(item?.name || ''),
+      })).filter((item) => item.path)
+      : []
+    form.startInputUploading = false
+    form.startInputUploadError = ''
     form.agentIoError = ''
 
     const configuredParameters = next?.data?.parameters && typeof next.data.parameters === 'object'
@@ -250,6 +270,25 @@ function applyChanges() {
       archiveName = `${archiveName}.zip`
     }
   }
+  if (isStartNode.value) {
+    emit('update-node', {
+      ...props.node,
+      label: form.label,
+      data: {
+        ...(props.node?.data || {}),
+        startInputText: String(form.startInputText || ''),
+        startInputUploadId: String(form.startInputUploadId || ''),
+        startInputUploadedFiles: Array.isArray(form.startInputUploadedFiles)
+          ? form.startInputUploadedFiles.map((item) => ({
+            path: String(item?.path || ''),
+            name: String(item?.name || ''),
+          })).filter((item) => item.path)
+          : [],
+        label: form.label,
+      },
+    })
+    return
+  }
 
   emit('update-node', {
     ...props.node,
@@ -275,6 +314,46 @@ function removeNode() {
   if (!props.node) return
   emit('delete-node', props.node.id)
 }
+
+function triggerStartUploadPicker() {
+  if (form.startInputUploading) return
+  startUploadInputEl.value?.click()
+}
+
+function removeStartUploadedFile(filePath) {
+  const target = String(filePath || '').trim()
+  if (!target) return
+  form.startInputUploadedFiles = form.startInputUploadedFiles
+    .filter((item) => String(item?.path || '').trim() !== target)
+}
+
+function clearStartUploadedFiles() {
+  form.startInputUploadId = ''
+  form.startInputUploadedFiles = []
+  form.startInputUploadError = ''
+}
+
+async function handleStartUploadChange(event) {
+  const files = Array.from(event?.target?.files || [])
+  if (!files.length) return
+  form.startInputUploading = true
+  form.startInputUploadError = ''
+  try {
+    const uploaded = await uploadWorkflowInputFiles(files)
+    form.startInputUploadId = String(uploaded?.uploadId || '')
+    form.startInputUploadedFiles = Array.isArray(uploaded?.uploaded)
+      ? uploaded.uploaded.map((item) => ({
+        path: String(item?.path || ''),
+        name: String(item?.name || ''),
+      })).filter((item) => item.path)
+      : []
+  } catch (err) {
+    form.startInputUploadError = err?.message || String(err)
+  } finally {
+    form.startInputUploading = false
+    if (event?.target) event.target.value = ''
+  }
+}
 </script>
 
 <template>
@@ -294,6 +373,39 @@ function removeNode() {
           placeholder="该节点执行时发送给 Agent 的指令"
         />
       </label>
+      <div v-if="isStartNode" class="field">
+        <span>用户输入文案</span>
+        <textarea
+          v-model="form.startInputText"
+          rows="5"
+          placeholder="请输入本次工作流用户输入文案"
+        />
+      </div>
+      <div v-if="isStartNode" class="field">
+        <span>用户上传文件</span>
+        <div class="start-upload-row">
+          <input
+            ref="startUploadInputEl"
+            type="file"
+            multiple
+            class="hidden-upload-input"
+            @change="handleStartUploadChange"
+          />
+          <button class="btn" :disabled="form.startInputUploading" @click="triggerStartUploadPicker">
+            {{ form.startInputUploading ? '上传中…' : '上传文件' }}
+          </button>
+          <button class="btn" :disabled="form.startInputUploading || !form.startInputUploadedFiles.length" @click="clearStartUploadedFiles">
+            清空
+          </button>
+        </div>
+        <div v-if="form.startInputUploadError" class="error-text">{{ form.startInputUploadError }}</div>
+        <div v-if="form.startInputUploadedFiles.length" class="start-upload-files">
+          <div v-for="item in form.startInputUploadedFiles" :key="item.path" class="start-upload-file">
+            <span>{{ item.path }}</span>
+            <button class="link-btn" @click="removeStartUploadedFile(item.path)">移除</button>
+          </div>
+        </div>
+      </div>
       <label v-if="isAgentNode" class="field">
         <span>超时（毫秒）</span>
         <input v-model.number="form.timeoutMs" type="number" min="0" step="1000" />
@@ -560,6 +672,39 @@ select {
 .hint-text {
   font-size: 12px;
   color: var(--kd-text-muted);
+}
+
+.start-upload-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.hidden-upload-input {
+  display: none;
+}
+
+.start-upload-files {
+  display: grid;
+  gap: 4px;
+  max-height: 120px;
+  overflow: auto;
+}
+
+.start-upload-file {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.link-btn {
+  border: none;
+  background: transparent;
+  color: var(--kd-primary);
+  padding: 0;
+  cursor: pointer;
 }
 
 .actions {

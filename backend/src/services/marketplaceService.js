@@ -11,8 +11,10 @@ import {
   insertAgentInstallation,
   insertMarketplaceTag,
   insertAgentTemplate,
+  listPublicWorkflowTemplates,
   listMarketplaceTags,
   listPublicAgentTemplates,
+  updateWorkflowTemplate,
   updateMarketplaceTag,
   updateAgentTemplate,
   deleteMarketplaceTag,
@@ -217,6 +219,13 @@ export function removeMarketplaceTag(tagId) {
     const nextTagIds = template.tagIds.filter((id) => id !== tagId)
     if (nextTagIds.length === template.tagIds.length) continue
     updateAgentTemplate(template.id, { tagIds: nextTagIds, updatedAt: now }, template.publisherUserId)
+  }
+  const workflowTemplates = listPublicWorkflowTemplates()
+  for (const template of workflowTemplates) {
+    if (!Array.isArray(template.tagIds) || template.tagIds.length === 0) continue
+    const nextTagIds = template.tagIds.filter((id) => id !== tagId)
+    if (nextTagIds.length === template.tagIds.length) continue
+    updateWorkflowTemplate(template.id, { tagIds: nextTagIds, updatedAt: now }, template.publisherUserId)
   }
   deleteMarketplaceTag(tagId)
 }

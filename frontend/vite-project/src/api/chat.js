@@ -18,8 +18,11 @@ function parseSseBlock(block) {
   return events
 }
 
-export async function sendMessage({ agent, content, uploadedFiles, onDelta, signal }) {
+export async function sendMessage({ agent, history, content, uploadedFiles, onDelta, signal }) {
   const body = { content }
+  if (Array.isArray(history) && history.length > 0) {
+    body.history = history
+  }
   if (Array.isArray(uploadedFiles) && uploadedFiles.length > 0) {
     body.uploadedFiles = uploadedFiles
   }

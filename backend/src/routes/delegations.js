@@ -15,7 +15,6 @@ import {
 } from '../services/delegationService.js'
 
 const router = Router()
-
 function shellEscape(s) {
   return `'${String(s).replace(/'/g, `'\\''`)}'`
 }
@@ -24,10 +23,15 @@ function buildHermesInvocation(content) {
   const escaped = shellEscape(content)
   const hermesBin = '/opt/hermes/.venv/bin/hermes'
   const workdir = config.hermesHomeInContainer
+  const subprocessHomeDir = config.hermesSubprocessHomeInContainer
   return [
     'bash',
     '-lc',
-    `cd ${shellEscape(workdir)} && (${hermesBin} chat --quiet --yolo -q ${escaped} 2>/dev/null \
+    `mkdir -p ${shellEscape(subprocessHomeDir)} && cd ${shellEscape(workdir)} && export HOME=${shellEscape(subprocessHomeDir)} HERMES_HOME=${shellEscape(workdir)} && (${hermesBin} chat --continue --quiet --yolo -q ${escaped} 2>/dev/null \
+      || ${hermesBin} chat --continue --yolo -q ${escaped} 2>/dev/null \
+      || hermes chat --continue --quiet --yolo -q ${escaped} 2>/dev/null \
+      || hermes chat --continue --yolo -q ${escaped} 2>/dev/null \
+      || ${hermesBin} chat --quiet --yolo -q ${escaped} 2>/dev/null \
       || ${hermesBin} chat --yolo -q ${escaped} 2>/dev/null \
       || hermes chat --quiet --yolo -q ${escaped} 2>/dev/null \
       || hermes chat --yolo -q ${escaped} 2>/dev/null \
@@ -55,18 +59,47 @@ function normalizeRelativeFiles(input) {
   )]
 }
 
-function buildMessageWithContextFiles(content, { uploadedFiles }) {
+function normalizeHistoryMessages(input) {
+  if (!Array.isArray(input)) return []
+  const out = []
+  for (const item of input) {
+    if (!item || typeof item !== 'object') continue
+    const role = String(item.role || '').trim().toLowerCase()
+    if (role !== 'user' && role !== 'assistant') continue
+    const content = String(item.content || '').trim()
+    if (!content) continue
+    out.push({ role, content })
+  }
+  return out.slice(-20)
+}
+
+function buildHistoryTranscript(history) {
+  if (!Array.isArray(history) || history.length === 0) return ''
+  const lines = ['系统提示：以下是同一会话的历史对话（按时间顺序）：']
+  for (const msg of history) {
+    const tag = msg.role === 'assistant' ? '助手' : '用户'
+    lines.push(`${tag}：${msg.content}`)
+  }
+  return `${lines.join('\n')}\n`
+}
+
+function buildMessageWithContextFiles(content, { uploadedFiles, history }) {
   const deliveryDir = config.deliveryDirInContainer
   const receivedDir = config.receivedDirInContainer
   const uploadDir = config.uploadInboxDirInContainer
   const runtimeRules = [
+    `系统提示：用户本轮原始问题：${content}`,
     `系统提示：你的工作目录是 ${config.hermesHomeInContainer}。`,
+    `系统提示：Hermes 状态根目录是 ${config.hermesHomeInContainer}（sessions/memories/config 等都在此目录）。`,
+    '系统提示：优先使用当前会话上下文与系统注入的历史对话回答，不要因为 session_search 返回空就声称“没有历史”。',
+    `系统提示：工具子进程 HOME 目录是 ${config.hermesSubprocessHomeInContainer}（git/ssh/gh/npm 与技能 CLI 凭据读取此目录）。`,
     `系统提示：上传素材目录是 ${uploadDir}，该目录用于读取外部输入文件（图片/文档等）。`,
     `系统提示：你的产出目录是 ${deliveryDir}，请将你生成的产出文件写入该目录。`,
     `系统提示：其他 agent 交付给你的文件目录是 ${receivedDir}，请从该目录读取参考输入，不要把它与产出目录混用。`,
   ]
+  const historyTranscript = buildHistoryTranscript(history)
   if (!uploadedFiles.length) {
-    return `${runtimeRules.join('\n')}\n\n用户消息：\n${content}`
+    return `${runtimeRules.join('\n')}\n\n${historyTranscript}用户消息：\n${content}`
   }
   const header = [
     ...runtimeRules,
@@ -74,7 +107,7 @@ function buildMessageWithContextFiles(content, { uploadedFiles }) {
     ...uploadedFiles.map((p) => `- ${uploadDir}/${p}`),
     '',
   ]
-  return `${header.join('\n')}\n用户消息：\n${content}`
+  return `${header.join('\n')}\n\n${historyTranscript}用户消息：\n${content}`
 }
 
 function isClarifyTimeoutMessage(text) {
@@ -147,6 +180,7 @@ router.post('/delegations/chat', authDelegationKey, async (req, res) => {
   const content = String(req.body?.content || '').trim()
   if (!content) return res.status(400).json({ error: 'content is required' })
   const uploadedFiles = normalizeRelativeFiles(req.body?.uploadedFiles)
+  const history = normalizeHistoryMessages(req.body?.history)
 
   const containerName = containerNameFor(agentId)
   const sse = openSse(res)
@@ -185,7 +219,7 @@ router.post('/delegations/chat', authDelegationKey, async (req, res) => {
   })
 
   try {
-    const composedContent = buildMessageWithContextFiles(content, { uploadedFiles })
+    const composedContent = buildMessageWithContextFiles(content, { uploadedFiles, history })
     const cmd = buildHermesInvocation(composedContent)
     const result = await execStreaming(containerName, cmd, {
       signal: controller.signal,

@@ -50,6 +50,26 @@ export function sanitizeHermesEnv(content) {
   return { content: normalized, missingKeys: uniqueKeys }
 }
 
+const SENSITIVE_KEY_PATTERN = /(token|api[_-]?key|secret|password|authorization|access[_-]?key|private[_-]?key)/i
+const DELIVERY_KEY_PATTERN = /(deliver|deliverable|inputDeliverable|resultDeliverable|uploadedFiles|imports?)/i
+
+function sanitizeJsonLike(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeJsonLike(item))
+  }
+  if (!value || typeof value !== 'object') return value
+  const out = {}
+  for (const [key, raw] of Object.entries(value)) {
+    if (DELIVERY_KEY_PATTERN.test(key)) continue
+    if (SENSITIVE_KEY_PATTERN.test(key)) {
+      out[key] = ''
+      continue
+    }
+    out[key] = sanitizeJsonLike(raw)
+  }
+  return out
+}
+
 export async function buildTemplateSnapshot(agentId) {
   const [hermesConfig, hermesEnv, mcpList, skillsList] = await Promise.all([
     readHermesConfig(agentId),
@@ -62,8 +82,8 @@ export async function buildTemplateSnapshot(agentId) {
     hermesConfig: normalizeLine(hermesConfig),
     hermesEnvSanitized: envSnapshot.content,
     hermesMissingKeys: envSnapshot.missingKeys,
-    mcpList,
-    skillsList,
+    mcpList: sanitizeJsonLike(mcpList),
+    skillsList: sanitizeJsonLike(skillsList),
   }
 }
 

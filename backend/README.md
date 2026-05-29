@@ -24,7 +24,7 @@ backend/
       system.js            /api/system/bootstrap & /api/system/health
     services/
       hermes.js            dockerode 封装：image/volume/container/exec
-      promptFile.js        把 systemPrompt 落到容器内 ~/.hermes/AGENTS.md
+      promptFile.js        把 systemPrompt 落到容器内 /opt/data/AGENTS.md
     utils/
       sse.js, logger.js
   data/                    运行时生成（SQLite db）
@@ -96,7 +96,7 @@ npm run dev                # http://localhost:5173
 
 - 镜像：`multiagent/hermes-agent:local`
 - 容器：`multiagent-<agent-uuid>`
-- 卷：`hermes-data-<agent-uuid>` -> 容器内 `/root/.hermes`
+- 卷：`hermes-data-<agent-uuid>` -> 容器内 `/opt/data`（Hermes 状态根目录）
 
 删除 agent 时这三者都会清理。
 
@@ -114,14 +114,15 @@ npm run dev                # http://localhost:5173
 | `HERMES_REPO_URL`            | `https://github.com/NousResearch/hermes-agent`         | 源码仓库 |
 | `HERMES_REPO_REF`            | `main`                                                 | clone 的分支/tag |
 | `CHAT_TIMEOUT_MS`            | `600000`                                               | 单次 chat 的超时（毫秒）|
+| `HERMES_SUBPROCESS_HOME_IN_CONTAINER` | `/opt/data/home`                                | Hermes 工具子进程 HOME（git/ssh/gh/npm/skills 凭据目录） |
 | `DOCKER_SOCKET`              | 空（自动选）                                           | 自定义 docker 通信端点 |
 
 ## Provider 是怎么生效的
 
 后端在创建/启动 agent 容器后，会按官方文档（[AI Providers](https://hermes-agent.nousresearch.com/docs/integrations/providers)）的方式向容器内写入两个文件：
 
-- `/root/.hermes/.env`：包含当前 `HERMES_PROVIDER` 对应的所有 API key（例如 `MINIMAX_CN_API_KEY=...`）
-- `/root/.hermes/config.yaml`：
+- `/opt/data/.env`：包含当前 `HERMES_PROVIDER` 对应的所有 API key（例如 `MINIMAX_CN_API_KEY=...`）
+- `/opt/data/config.yaml`：
 
   ```yaml
   model:

@@ -7,6 +7,7 @@ import {
   findContainer,
   safeRelPath,
 } from './hermes.js'
+import { resolveWorkflowDeliverablesDir, resolveWorkflowReceivedRoot } from './sessionPathService.js'
 
 function shellEscape(s) {
   return `'${String(s).replace(/'/g, `'\\''`)}'`
@@ -16,10 +17,15 @@ function buildHermesInvocation(content) {
   const escaped = shellEscape(content)
   const hermesBin = '/opt/hermes/.venv/bin/hermes'
   const workdir = config.hermesHomeInContainer
+  const subprocessHomeDir = config.hermesSubprocessHomeInContainer
   return [
     'bash',
     '-lc',
-    `cd ${shellEscape(workdir)} && (${hermesBin} chat --quiet --yolo -q ${escaped} 2>/dev/null \
+    `mkdir -p ${shellEscape(subprocessHomeDir)} && cd ${shellEscape(workdir)} && export HOME=${shellEscape(subprocessHomeDir)} HERMES_HOME=${shellEscape(workdir)} && (${hermesBin} chat --continue --quiet --yolo -q ${escaped} 2>/dev/null \
+      || ${hermesBin} chat --continue --yolo -q ${escaped} 2>/dev/null \
+      || hermes chat --continue --quiet --yolo -q ${escaped} 2>/dev/null \
+      || hermes chat --continue --yolo -q ${escaped} 2>/dev/null \
+      || ${hermesBin} chat --quiet --yolo -q ${escaped} 2>/dev/null \
       || ${hermesBin} chat --yolo -q ${escaped} 2>/dev/null \
       || hermes chat --quiet --yolo -q ${escaped} 2>/dev/null \
       || hermes chat --yolo -q ${escaped} 2>/dev/null \
@@ -47,15 +53,22 @@ function normalizeRelativeFiles(input) {
   )]
 }
 
-function buildMessageWithContextFiles(content, { uploadedFiles, receivedFiles, deliverableSpecs, retryHint }) {
-  const deliveryDir = config.deliveryDirInContainer
-  const receivedDir = config.receivedDirInContainer
+function buildMessageWithContextFiles(content, { uploadedFiles, receivedFiles, deliverableSpecs, retryHint, runId, agentId }) {
+  const deliveryDir = runId
+    ? resolveWorkflowDeliverablesDir(runId, agentId)
+    : config.deliveryDirInContainer
+  const receivedDir = runId
+    ? resolveWorkflowReceivedRoot(runId)
+    : config.receivedDirInContainer
   const uploadDir = config.uploadInboxDirInContainer
   const runtimeRules = [
     `System: workspace directory is ${config.hermesHomeInContainer}.`,
+    `System: Hermes state root is ${config.hermesHomeInContainer} (sessions/memories/config live here).`,
+    `System: subprocess HOME directory is ${config.hermesSubprocessHomeInContainer} (git/ssh/gh/npm and skill CLIs read credentials here).`,
     `System: upload directory is ${uploadDir}.`,
     `System: output directory is ${deliveryDir}.`,
     `System: received files directory is ${receivedDir}.`,
+    'System: do not read or write files outside this run-scoped output/received directories.',
   ]
   const received = Array.isArray(receivedFiles) ? receivedFiles.filter(Boolean) : []
   const deliverables = Array.isArray(deliverableSpecs) ? deliverableSpecs.filter(Boolean) : []
@@ -95,6 +108,7 @@ async function ensureContainerRunning(containerName) {
 export async function executeAgentNode({
   userId,
   agentId,
+  runId,
   prompt,
   uploadedFiles,
   receivedFiles,
@@ -113,14 +127,15 @@ export async function executeAgentNode({
   const normalizedFiles = normalizeRelativeFiles(uploadedFiles)
   const containerName = containerNameFor(agentId)
   await ensureContainerRunning(containerName)
-  const cmd = buildHermesInvocation(
-    buildMessageWithContextFiles(content, {
-      uploadedFiles: normalizedFiles,
-      receivedFiles,
-      deliverableSpecs,
-      retryHint,
-    })
-  )
+  const requestMessage = buildMessageWithContextFiles(content, {
+    uploadedFiles: normalizedFiles,
+    receivedFiles,
+    deliverableSpecs,
+    retryHint,
+    runId,
+    agentId,
+  })
+  const cmd = buildHermesInvocation(requestMessage)
 
   let stdout = ''
   let stderr = ''
@@ -132,15 +147,21 @@ export async function executeAgentNode({
       onStdout: (chunk) => { stdout += chunk || '' },
       onStderr: (chunk) => { stderr += chunk || '' },
     })
+    const stderrMsg = stderr.trim()
     if ((result?.exitCode ?? 0) !== 0) {
-      throw new Error(stderr.trim() || `agent node failed with exit code ${result?.exitCode}`)
+      throw new Error(stderrMsg || `agent node failed with exit code ${result?.exitCode}`)
     }
     if (!stdout.trim()) {
-      throw new Error(stderr.trim() || 'agent node returned empty output')
+      throw new Error(stderrMsg || 'agent node returned empty output')
     }
     return {
       output: stdout,
-      stderr: stderr.trim(),
+      stderr: stderrMsg,
+      requestMessage,
+      conversation: [
+        { role: 'user', content },
+        { role: 'assistant', content: stdout },
+      ],
     }
   } finally {
     clearTimeout(timer)
@@ -148,6 +169,7 @@ export async function executeAgentNode({
 }
 
 export async function deliverAgentNodeFiles({
+  runId,
   fromAgentId,
   toAgentId,
   files,
@@ -159,6 +181,7 @@ export async function deliverAgentNodeFiles({
   return copyFilesBetweenAgents({
     fromAgentId,
     toAgentId,
+    runId,
     paths: normalized,
   })
 }

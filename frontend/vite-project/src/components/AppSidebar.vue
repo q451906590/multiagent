@@ -15,6 +15,7 @@ const menuGroups = [
       { key: 'importCenter', label: '导入中心', icon: '⇣', core: true },
       { key: 'marketplace', label: 'Agent 市场', icon: '◈', core: true },
       { key: 'workflowBuilder', label: '搭建工作流', icon: '◇', core: true },
+      { key: 'workflowMarketplace', label: '工作流市集', icon: '◎', core: true },
     ],
   },
   {

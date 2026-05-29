@@ -38,6 +38,12 @@ export function getDefaultNodeParameters(type) {
 
 export const baseNodeDefinitions = [
   {
+    type: 'start.userInput',
+    label: '用户输入开始',
+    icon: '▶',
+    data: {},
+  },
+  {
     type: 'if',
     label: '条件分支 IF',
     icon: '◇',

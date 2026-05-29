@@ -8,7 +8,8 @@ onMounted(() => {
   loadImports().catch(() => {})
 })
 
-const hasData = computed(() => state.items.length > 0)
+const hasAgentData = computed(() => state.agentItems.length > 0)
+const hasWorkflowData = computed(() => state.workflowItems.length > 0)
 
 function formatTime(ts) {
   const value = Number(ts || 0)
@@ -27,9 +28,10 @@ function formatTime(ts) {
     <div class="panel">
       <p v-if="state.loading" class="tip">正在加载导入记录...</p>
       <p v-else-if="state.error" class="err">{{ state.error }}</p>
-      <p v-else-if="!hasData" class="tip">暂无导入记录，可先到 Agent 市场接入模板。</p>
+      <p v-else-if="!hasAgentData && !hasWorkflowData" class="tip">暂无导入记录，可先到市集安装模板。</p>
 
-      <table v-else class="table">
+      <h3 v-if="hasAgentData" class="section-title">Agent 导入记录</h3>
+      <table v-if="hasAgentData" class="table">
         <thead>
           <tr>
             <th>Agent</th>
@@ -40,11 +42,41 @@ function formatTime(ts) {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="item in state.items" :key="item.id">
+          <tr v-for="item in state.agentItems" :key="item.id">
             <td>
               <span class="emoji">{{ item.agentEmoji || '🤖' }}</span>
               {{ item.agentName || '-' }}
             </td>
+            <td>
+              <div>{{ item.templateTitle || '-' }}</div>
+              <div class="sub">{{ item.publisherUsername ? `作者：${item.publisherUsername}` : '作者：-' }}</div>
+            </td>
+            <td>
+              <div class="tag-row">
+                <span v-for="tag in item.tags || []" :key="tag.id" class="tag">{{ tag.name }}</span>
+                <span v-if="!(item.tags || []).length" class="sub">-</span>
+              </div>
+            </td>
+            <td>{{ formatTime(item.installedAt) }}</td>
+            <td>{{ item.installedVersion || '-' }}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3 v-if="hasWorkflowData" class="section-title">工作流导入记录</h3>
+      <table v-if="hasWorkflowData" class="table">
+        <thead>
+          <tr>
+            <th>工作流</th>
+            <th>来源模板</th>
+            <th>标签</th>
+            <th>导入时间</th>
+            <th>版本</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="item in state.workflowItems" :key="item.id">
+            <td>{{ item.workflowName || '-' }}</td>
             <td>
               <div>{{ item.templateTitle || '-' }}</div>
               <div class="sub">{{ item.publisherUsername ? `作者：${item.publisherUsername}` : '作者：-' }}</div>
@@ -87,6 +119,12 @@ function formatTime(ts) {
   border-radius: 12px;
   background: var(--kd-surface);
   overflow: hidden;
+}
+
+.section-title {
+  margin: 10px 14px;
+  font-size: 14px;
+  color: var(--kd-text);
 }
 
 .tip,

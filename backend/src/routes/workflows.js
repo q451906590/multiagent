@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import multer from 'multer'
 import {
   activateWorkflow,
   createWorkflow,
@@ -9,8 +10,16 @@ import {
   updateWorkflowDraft,
 } from '../services/workflowService.js'
 import { listRunsForWorkflow, triggerWorkflowRun } from '../services/workflowExecutionService.js'
+import { saveWorkflowInputUploads } from '../services/workflowInputService.js'
 
 const router = Router()
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    files: 10,
+    fileSize: 20 * 1024 * 1024,
+  },
+})
 
 router.get('/', (req, res) => {
   res.json(listWorkflowSummaries(req.user.id))
@@ -88,6 +97,19 @@ router.post('/:id/runs', async (req, res) => {
     const message = String(err?.message || '')
     const code = message.includes('not found') ? 404 : 400
     res.status(code).json({ error: message || 'run_trigger_failed' })
+  }
+})
+
+router.post('/uploads', upload.array('files', 10), (req, res) => {
+  try {
+    const files = Array.isArray(req.files) ? req.files : []
+    const result = saveWorkflowInputUploads({
+      userId: req.user.id,
+      files,
+    })
+    res.status(201).json(result)
+  } catch (err) {
+    res.status(400).json({ error: err?.message || 'workflow_input_upload_failed' })
   }
 })
 

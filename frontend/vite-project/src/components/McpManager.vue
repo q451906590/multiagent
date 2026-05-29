@@ -15,6 +15,9 @@ const form = reactive({
   sourceType: 'custom',
   command: '',
   argsText: '',
+  httpUrl: '',
+  headersText: '',
+  envText: '',
   packageName: '',
   version: '',
   gitUrl: '',
@@ -26,11 +29,40 @@ function resetForm() {
   form.sourceType = 'custom'
   form.command = ''
   form.argsText = ''
+  form.httpUrl = ''
+  form.headersText = ''
+  form.envText = ''
   form.packageName = ''
   form.version = ''
   form.gitUrl = ''
   form.gitRef = ''
   editingId.value = ''
+}
+
+function parseEnvText(text) {
+  const out = {}
+  for (const raw of String(text || '').split('\n')) {
+    const line = raw.trim()
+    if (!line || line.startsWith('#')) continue
+    const idx = line.indexOf('=')
+    if (idx <= 0) continue
+    const key = line.slice(0, idx).trim()
+    const value = line.slice(idx + 1)
+    if (!key) continue
+    out[key] = value
+  }
+  return out
+}
+
+function parseHeadersText(text) {
+  return parseEnvText(text)
+}
+
+function formatEnv(env) {
+  if (!env || typeof env !== 'object') return ''
+  return Object.entries(env)
+    .map(([key, value]) => `${key}=${value ?? ''}`)
+    .join('\n')
 }
 
 function toPayload() {
@@ -43,6 +75,9 @@ function toPayload() {
     sourceType: form.sourceType,
     command: form.command.trim(),
     args,
+    httpUrl: form.httpUrl.trim(),
+    headers: parseHeadersText(form.headersText),
+    env: form.sourceType === 'http' ? {} : parseEnvText(form.envText),
     packageName: form.packageName.trim(),
     version: form.version.trim(),
     gitUrl: form.gitUrl.trim(),
@@ -56,6 +91,9 @@ function beginEdit(item) {
   form.sourceType = item.sourceType || 'custom'
   form.command = item.command || ''
   form.argsText = Array.isArray(item.args) ? item.args.join('\n') : ''
+  form.httpUrl = item.httpUrl || item.url || ''
+  form.headersText = formatEnv(item.headers)
+  form.envText = formatEnv(item.env)
   form.packageName = item.packageName || ''
   form.version = item.version || ''
   form.gitUrl = item.gitUrl || ''
@@ -132,6 +170,7 @@ onMounted(() => {
           <option value="npm">npm / npx</option>
           <option value="pip">pip</option>
           <option value="git">git</option>
+          <option value="http">http</option>
         </select>
       </label>
 
@@ -151,13 +190,25 @@ onMounted(() => {
         Git Ref（可选）
         <input v-model="form.gitRef" placeholder="main / tag / commit" />
       </label>
-      <label class="full">
+      <label v-if="form.sourceType === 'http'" class="full">
+        HTTP URL
+        <input v-model="form.httpUrl" placeholder="https://example.com/mcp" />
+      </label>
+      <label v-if="form.sourceType === 'http'" class="full">
+        headers（每行一个 `KEY=VALUE`）
+        <textarea v-model="form.headersText" rows="3" placeholder="Authorization=Bearer xxx&#10;x-api-key=xxxx" />
+      </label>
+      <label v-if="form.sourceType !== 'http'" class="full">
         args（每行一个）
         <textarea v-model="form.argsText" rows="3" placeholder="-y&#10;@modelcontextprotocol/server-filesystem" />
       </label>
-      <label class="full">
+      <label v-if="form.sourceType !== 'http'" class="full">
         command（可选，安装后启动命令）
         <input v-model="form.command" placeholder="例如：npx 或 python" />
+      </label>
+      <label v-if="form.sourceType !== 'http'" class="full">
+        env（每行一个 `KEY=VALUE`，可用于 API_KEY）
+        <textarea v-model="form.envText" rows="3" placeholder="API_KEY=xxxx&#10;BASE_URL=https://api.example.com" />
       </label>
     </div>
 
@@ -179,6 +230,9 @@ onMounted(() => {
             <span v-if="item.command">命令：{{ item.command }}</span>
             <span v-if="item.packageName">包：{{ item.packageName }}</span>
             <span v-if="item.gitUrl">仓库：{{ item.gitUrl }}</span>
+            <span v-if="item.httpUrl">HTTP：{{ item.httpUrl }}</span>
+            <span v-if="item.headers && Object.keys(item.headers).length">请求头：{{ Object.keys(item.headers).length }} 项</span>
+            <span v-if="item.env && Object.keys(item.env).length">环境变量：{{ Object.keys(item.env).length }} 项</span>
           </div>
           <div v-if="item.lastError" class="item-error">最近错误：{{ item.lastError }}</div>
         </div>

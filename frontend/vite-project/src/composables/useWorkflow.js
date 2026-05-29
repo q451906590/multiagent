@@ -1,4 +1,4 @@
-import { reactive } from 'vue'
+import { nextTick, reactive } from 'vue'
 import * as workflowsApi from '../api/workflows.js'
 
 const state = reactive({
@@ -56,7 +56,9 @@ function setCanvas(definition, options = {}) {
   deletedNodeIds.clear()
   deletedEdgeIds.clear()
   state.nodes.splice(0, state.nodes.length, ...nodes)
-  state.edges.splice(0, state.edges.length, ...edges)
+  nextTick(() => {
+    state.edges.splice(0, state.edges.length, ...edges)
+  })
   if (markDirty) {
     updateDraftDirty()
   } else {

@@ -178,7 +178,9 @@ async function refreshFiles() {
   filesError.value = ''
   downloadZipError.value = ''
   try {
-    const list = await listAgentFiles(props.agent.id, { scope: fileListScope.value })
+    const list = await listAgentFiles(props.agent.id, {
+      scope: fileListScope.value,
+    })
     availableFiles.value = Array.isArray(list) ? list : []
     selectedFiles.value = selectedFiles.value.filter((p) => availableFiles.value.some((f) => f.path === p))
   } catch (err) {
@@ -247,7 +249,10 @@ async function deleteListedFile(path) {
   deletingFilePath.value = relPath
   deleteError.value = ''
   try {
-    await deleteAgentFile(props.agent.id, { scope: fileListScope.value, path: relPath })
+    await deleteAgentFile(props.agent.id, {
+      scope: fileListScope.value,
+      path: relPath,
+    })
     await refreshFiles()
   } catch (err) {
     deleteError.value = err?.message || String(err)

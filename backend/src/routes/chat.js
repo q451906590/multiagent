@@ -6,7 +6,6 @@ import { config } from '../config.js'
 import { logger } from '../utils/logger.js'
 
 const router = Router()
-
 function shellEscape(s) {
   return `'${String(s).replace(/'/g, `'\\''`)}'`
 }
@@ -15,10 +14,15 @@ function buildHermesInvocation(content) {
   const escaped = shellEscape(content)
   const hermesBin = '/opt/hermes/.venv/bin/hermes'
   const workdir = config.hermesHomeInContainer
+  const subprocessHomeDir = config.hermesSubprocessHomeInContainer
   return [
     'bash',
     '-lc',
-    `cd ${shellEscape(workdir)} && (${hermesBin} chat --quiet --yolo -q ${escaped} 2>/dev/null \
+    `mkdir -p ${shellEscape(subprocessHomeDir)} && cd ${shellEscape(workdir)} && export HOME=${shellEscape(subprocessHomeDir)} HERMES_HOME=${shellEscape(workdir)} && (${hermesBin} chat --continue --quiet --yolo -q ${escaped} 2>/dev/null \
+      || ${hermesBin} chat --continue --yolo -q ${escaped} 2>/dev/null \
+      || hermes chat --continue --quiet --yolo -q ${escaped} 2>/dev/null \
+      || hermes chat --continue --yolo -q ${escaped} 2>/dev/null \
+      || ${hermesBin} chat --quiet --yolo -q ${escaped} 2>/dev/null \
       || ${hermesBin} chat --yolo -q ${escaped} 2>/dev/null \
       || hermes chat --quiet --yolo -q ${escaped} 2>/dev/null \
       || hermes chat --yolo -q ${escaped} 2>/dev/null \
@@ -51,12 +55,15 @@ function buildMessageWithContextFiles(content, { uploadedFiles }) {
   const receivedDir = config.receivedDirInContainer
   const uploadDir = config.uploadInboxDirInContainer
   const runtimeRules = [
+    `系统提示：用户本轮原始问题：${content}`,
     `系统提示：你的工作目录是 ${config.hermesHomeInContainer}。`,
+    `系统提示：Hermes 状态根目录是 ${config.hermesHomeInContainer}（sessions/memories/config 等都在此目录）。`,
+    '系统提示：优先使用当前会话上下文与系统注入的历史对话回答，不要因为 session_search 返回空就声称“没有历史”。',
+    `系统提示：工具子进程 HOME 目录是 ${config.hermesSubprocessHomeInContainer}（git/ssh/gh/npm 与技能 CLI 凭据读取此目录）。`,
     `系统提示：上传素材目录是 ${uploadDir}，该目录用于读取外部输入文件（图片/文档等）。`,
     `系统提示：你的产出目录是 ${deliveryDir}，请将你生成的产出文件写入该目录。`,
     `系统提示：其他 agent 交付给你的文件目录是 ${receivedDir}，请从该目录读取参考输入，不要把它与产出目录混用。`,
   ]
-
   const hasUploaded = uploadedFiles.length > 0
   if (!hasUploaded) {
     return `${runtimeRules.join('\n')}\n\n用户消息：\n${content}`
@@ -71,7 +78,7 @@ function buildMessageWithContextFiles(content, { uploadedFiles }) {
     )
   }
 
-  return `${header.join('\n')}\n用户消息：\n${content}`
+  return `${header.join('\n')}\n\n用户消息：\n${content}`
 }
 
 function isClarifyTimeoutMessage(text) {

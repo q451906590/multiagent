@@ -8,7 +8,9 @@ import {
   ensureContainerRunning,
   execInContainer,
 } from './hermes.js'
+import { START_TEXT_DELIVERABLE, START_UPLOADS_DELIVERABLE } from './workflowInputService.js'
 import { resolveResultNodeExecutionPlan } from './workflowService.js'
+import { resolveWorkflowDeliverablesDir } from './sessionPathService.js'
 
 function normalizeRelPath(inputPath) {
   const raw = String(inputPath || '').trim().replaceAll('\\', '/')
@@ -19,12 +21,17 @@ function normalizeRelPath(inputPath) {
   return parts.join('/')
 }
 
-async function readFileBufferFromAgentDeliverables(agentId, relPath) {
+async function readFileBufferFromAgentDeliverables(agentId, runId, relPath) {
   const normalized = normalizeRelPath(relPath)
   if (!normalized) throw new Error('invalid deliverable path')
   const containerName = containerNameFor(agentId)
   await ensureContainerRunning(containerName)
-  const absPath = path.posix.join(config.deliveryDirInContainer, normalized)
+  const baseDir = resolveWorkflowDeliverablesDir(runId, agentId)
+  const fallbackBaseDir = config.deliveryDirInContainer
+  const candidatePaths = [path.posix.join(baseDir, normalized)]
+  if (fallbackBaseDir !== baseDir) {
+    candidatePaths.push(path.posix.join(fallbackBaseDir, normalized))
+  }
   const py = [
     'import base64, os, sys',
     'target = os.environ.get("TARGET", "")',
@@ -35,18 +42,69 @@ async function readFileBufferFromAgentDeliverables(agentId, relPath) {
     '  data = f.read()',
     'print(base64.b64encode(data).decode("ascii"))',
   ].join('\n')
-  const cmd = [
-    `TARGET=${JSON.stringify(absPath)} /opt/hermes/.venv/bin/python - <<'PY'`,
-    py,
-    'PY',
-  ].join('\n')
-  const result = await execInContainer(containerName, ['bash', '-lc', cmd])
-  if ((result?.exitCode ?? 0) !== 0) {
-    throw new Error(`deliverable not found: ${normalized}`)
+  for (const absPath of candidatePaths) {
+    const cmd = [
+      `TARGET=${JSON.stringify(absPath)} /opt/hermes/.venv/bin/python - <<'PY'`,
+      py,
+      'PY',
+    ].join('\n')
+    const result = await execInContainer(containerName, ['bash', '-lc', cmd])
+    if ((result?.exitCode ?? 0) !== 0) {
+      continue
+    }
+    const encoded = String(result?.stdout || '').trim()
+    if (!encoded) continue
+    return Buffer.from(encoded, 'base64')
   }
-  const encoded = String(result?.stdout || '').trim()
-  if (!encoded) throw new Error(`deliverable not found: ${normalized}`)
-  return Buffer.from(encoded, 'base64')
+  throw new Error(`deliverable not found: ${normalized}`)
+}
+
+function normalizeStartInputPayload(run) {
+  const input = run?.input && typeof run.input === 'object' ? run.input : {}
+  const payload = input?.__workflowStartInput && typeof input.__workflowStartInput === 'object'
+    ? input.__workflowStartInput
+    : {}
+  return {
+    text: String(payload.text || ''),
+    uploadId: String(payload.uploadId || '').trim(),
+    uploadedFiles: Array.isArray(payload.uploadedFiles) ? payload.uploadedFiles : [],
+  }
+}
+
+function normalizeStartUploadedFiles(input) {
+  const list = Array.isArray(input) ? input : []
+  const out = []
+  const seen = new Set()
+  for (const item of list) {
+    const rel = normalizeRelPath(item?.path)
+    if (!rel || seen.has(rel)) continue
+    seen.add(rel)
+    out.push({
+      path: rel,
+      name: String(item?.name || '').trim() || path.posix.basename(rel),
+    })
+  }
+  return out
+}
+
+function readWorkflowInputUploadBuffer({ userId, uploadId, relPath }) {
+  const safeUploadId = String(uploadId || '').trim()
+  const safeRel = normalizeRelPath(relPath)
+  if (!safeUploadId || !safeRel) throw new Error('invalid workflow start upload path')
+  const userPart = encodeURIComponent(String(userId || '').trim())
+  const uploadPart = encodeURIComponent(safeUploadId)
+  const absPath = path.join(
+    config.dataDir,
+    'workflow-inputs',
+    userPart,
+    uploadPart,
+    'files',
+    safeRel.replaceAll('/', path.sep)
+  )
+  if (!fs.existsSync(absPath) || !fs.statSync(absPath).isFile()) {
+    throw new Error(`workflow input file not found: ${safeRel}`)
+  }
+  return fs.readFileSync(absPath)
 }
 
 export async function buildResultArchive({
@@ -56,14 +114,58 @@ export async function buildResultArchive({
   nodeId,
 }) {
   const plan = resolveResultNodeExecutionPlan({ workflowId, userId, nodeId })
+  const run = getWorkflowRunById(runId, userId)
+  const startInput = normalizeStartInputPayload(run)
   const zip = new JSZip()
   const included = []
   const missing = []
 
   for (const ref of plan.resultDeliverables) {
     try {
-      const buffer = await readFileBufferFromAgentDeliverables(ref.sourceAgentId, ref.path)
       const folder = String(ref.sourceNodeLabel || ref.sourceNodeId || ref.sourceAgentId || 'agent')
+      const sourceNodeType = String(ref.sourceNodeType || '').trim()
+      if (sourceNodeType === 'start.userInput') {
+        if (ref.path === START_TEXT_DELIVERABLE || ref.path === 'user-input.txt') {
+          const entry = `${folder}/user-input.txt`
+          zip.file(entry, Buffer.from(startInput.text || '', 'utf8'))
+          included.push({
+            sourceNodeId: ref.sourceNodeId,
+            sourceAgentId: '',
+            path: ref.path,
+            entry,
+          })
+          continue
+        }
+        if (ref.path === START_UPLOADS_DELIVERABLE || ref.path === 'user-uploads') {
+          const uploadItems = normalizeStartUploadedFiles(startInput.uploadedFiles)
+          if (!uploadItems.length) {
+            missing.push({
+              sourceNodeId: ref.sourceNodeId,
+              sourceAgentId: '',
+              path: ref.path,
+              reason: 'no_uploaded_files',
+            })
+            continue
+          }
+          for (const item of uploadItems) {
+            const buffer = readWorkflowInputUploadBuffer({
+              userId,
+              uploadId: startInput.uploadId,
+              relPath: item.path,
+            })
+            const entry = `${folder}/uploads/${item.path}`
+            zip.file(entry, buffer)
+            included.push({
+              sourceNodeId: ref.sourceNodeId,
+              sourceAgentId: '',
+              path: item.path,
+              entry,
+            })
+          }
+          continue
+        }
+      }
+      const buffer = await readFileBufferFromAgentDeliverables(ref.sourceAgentId, runId, ref.path)
       const entry = `${folder}/${ref.path}`
       zip.file(entry, buffer)
       included.push({
@@ -89,7 +191,6 @@ export async function buildResultArchive({
   const zipBuffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' })
   fs.writeFileSync(outPath, zipBuffer)
 
-  const run = getWorkflowRunById(runId, userId)
   if (run) {
     const output = run.output && typeof run.output === 'object' ? { ...run.output } : {}
     output.resultArchive = {

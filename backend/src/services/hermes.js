@@ -4,6 +4,12 @@ import tar from 'tar-stream'
 import Docker from 'dockerode'
 import { config } from '../config.js'
 import { logger } from '../utils/logger.js'
+import {
+  resolveChatDeliverablesDir,
+  resolveChatReceivedRelPath,
+  resolveWorkflowDeliverablesDir,
+  resolveWorkflowReceivedRelPath,
+} from './sessionPathService.js'
 
 let docker = null
 let imageEnsuredPromise = null
@@ -471,7 +477,7 @@ function archiveToBuffer(stream) {
   })
 }
 
-export async function copyFilesBetweenAgents({ fromAgentId, toAgentId, paths }) {
+export async function copyFilesBetweenAgents({ fromAgentId, toAgentId, paths, runId, chatSessionId }) {
   const sourceName = containerNameFor(fromAgentId)
   const targetName = containerNameFor(toAgentId)
   await ensureContainerRunning(sourceName)
@@ -487,10 +493,19 @@ export async function copyFilesBetweenAgents({ fromAgentId, toAgentId, paths }) 
   const normalizedPaths = [...new Set(inputPaths.map((p) => safeRelPath(p)))]
   const delivered = []
   const failed = []
+  const sourceRootDir = runId
+    ? resolveWorkflowDeliverablesDir(runId, fromAgentId)
+    : (chatSessionId
+      ? resolveChatDeliverablesDir(chatSessionId, fromAgentId)
+      : config.deliveryDirInContainer)
 
   for (const relPath of normalizedPaths) {
-    const sourceAbs = path.posix.join(config.deliveryDirInContainer, relPath)
-    const targetRelPath = safeRelPath(path.posix.join(fromAgentId, relPath))
+    const sourceAbs = path.posix.join(sourceRootDir, relPath)
+    const targetRelPath = runId
+      ? resolveWorkflowReceivedRelPath(runId, fromAgentId, relPath)
+      : (chatSessionId
+        ? resolveChatReceivedRelPath(chatSessionId, fromAgentId, relPath)
+        : safeRelPath(path.posix.join(fromAgentId, relPath)))
     const targetDir = path.posix.join(config.receivedDirInContainer, path.posix.dirname(targetRelPath))
     try {
       await execInContainer(targetName, ['mkdir', '-p', targetDir])
@@ -506,12 +521,13 @@ export async function copyFilesBetweenAgents({ fromAgentId, toAgentId, paths }) 
   return { delivered, failed }
 }
 
-export async function deleteAgentFileByScope({ agentId, scope = 'delivery', relPath }) {
+export async function deleteAgentFileByScope({ agentId, scope = 'delivery', relPath, rootDir }) {
   const normalizedRelPath = safeRelPath(relPath)
   const containerName = containerNameFor(agentId)
   await ensureContainerRunning(containerName)
 
-  const rootDir = scope === 'received' ? config.receivedDirInContainer : config.deliveryDirInContainer
+  const effectiveRootDir = String(rootDir || '').trim()
+    || (scope === 'received' ? config.receivedDirInContainer : config.deliveryDirInContainer)
   const script = [
     'import os',
     'root = os.environ.get("ROOT", "")',
@@ -524,7 +540,7 @@ export async function deleteAgentFileByScope({ agentId, scope = 'delivery', relP
     '  print("missing")',
   ].join('\n')
   const pythonCmd = [
-    `ROOT=${JSON.stringify(rootDir)} REL=${JSON.stringify(normalizedRelPath)} /opt/hermes/.venv/bin/python - <<'PY'`,
+    `ROOT=${JSON.stringify(effectiveRootDir)} REL=${JSON.stringify(normalizedRelPath)} /opt/hermes/.venv/bin/python - <<'PY'`,
     script,
     'PY',
   ].join('\n')

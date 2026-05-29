@@ -15,6 +15,14 @@ function envInt(name, fallback) {
   return Number.isFinite(n) ? n : fallback
 }
 
+function envBool(name, fallback) {
+  const raw = String(process.env[name] || '').trim().toLowerCase()
+  if (!raw) return fallback
+  if (['1', 'true', 'yes', 'on'].includes(raw)) return true
+  if (['0', 'false', 'no', 'off'].includes(raw)) return false
+  return fallback
+}
+
 const n8nPort = envInt('N8N_PORT', 5678)
 const n8nBaseUrl = String(process.env.N8N_BASE_URL || `http://127.0.0.1:${n8nPort}`)
   .trim()
@@ -57,8 +65,10 @@ export const config = {
   containerNamePrefix: 'multiagent-',
   volumeNamePrefix: 'hermes-data-',
   hermesHomeInContainer: '/opt/data',
+  hermesSubprocessHomeInContainer: process.env.HERMES_SUBPROCESS_HOME_IN_CONTAINER || '/opt/data/home',
   hostMountDirInContainer: process.env.HOST_MOUNT_DIR_IN_CONTAINER || '/opt/data/host-mount',
   uploadInboxDirInContainer: process.env.UPLOAD_INBOX_DIR_IN_CONTAINER || '/opt/data/inbox',
   deliveryDirInContainer: process.env.DELIVERY_DIR_IN_CONTAINER || '/opt/data/deliverables',
   receivedDirInContainer: process.env.RECEIVED_DIR_IN_CONTAINER || '/opt/data/received',
+  runScopedArtifacts: envBool('RUN_SCOPED_ARTIFACTS', true),
 }

@@ -58,6 +58,20 @@ export async function runWorkflow(id, input = {}) {
   return jsonOr(res)
 }
 
+export async function uploadWorkflowInputFiles(files) {
+  const list = Array.isArray(files) ? files : []
+  if (!list.length) throw new Error('files is required')
+  const form = new FormData()
+  for (const file of list) {
+    form.append('files', file)
+  }
+  const res = await apiFetch('/api/workflows/uploads', {
+    method: 'POST',
+    body: form,
+  })
+  return jsonOr(res)
+}
+
 export async function listWorkflowRuns(id, { limit = 30 } = {}) {
   const params = new URLSearchParams()
   params.set('limit', String(limit))

@@ -7,6 +7,7 @@ import { MiniMap } from '@vue-flow/minimap'
 import IfNode from './nodes/IfNode.vue'
 import SwitchNode from './nodes/SwitchNode.vue'
 import ResultNode from './nodes/ResultNode.vue'
+import StartInputNode from './nodes/StartInputNode.vue'
 
 const props = defineProps({
   nodes: { type: Array, required: true },
@@ -37,6 +38,7 @@ const nodeTypes = {
   if: markRaw(IfNode),
   switch: markRaw(SwitchNode),
   result: markRaw(ResultNode),
+  'start.userInput': markRaw(StartInputNode),
 }
 
 function handleConnect(params) {

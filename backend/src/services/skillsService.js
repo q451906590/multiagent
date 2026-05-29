@@ -10,6 +10,7 @@ import {
   writeSkillsList,
 } from './agentExtensionsStore.js'
 import { execInContainer, findContainer } from './hermes.js'
+import { readHermesConfig, writeHermesConfigRaw } from './promptFile.js'
 
 function normalizeName(value, fallback = '未命名 Skill') {
   const text = String(value || '').trim()
@@ -38,6 +39,83 @@ function toPublic(item) {
     updatedAt: item.updatedAt,
     installedAt: item.installedAt || null,
   }
+}
+
+function yamlScalar(value) {
+  const s = String(value ?? '')
+  if (/^[A-Za-z0-9._:/\-]+$/.test(s)) return s
+  return JSON.stringify(s)
+}
+
+function stripTopLevelBlock(content, key) {
+  const lines = String(content || '').split('\n')
+  const out = []
+  let skipping = false
+  const targetRegex = new RegExp(`^${key}:\\s*(#.*)?$`)
+  const topLevelKeyRegex = /^[^\s#][^:]*:\s*(#.*)?$/
+  for (const line of lines) {
+    if (!skipping && targetRegex.test(line.trim())) {
+      skipping = true
+      continue
+    }
+    if (skipping) {
+      if (topLevelKeyRegex.test(line)) {
+        skipping = false
+      } else {
+        continue
+      }
+    }
+    out.push(line)
+  }
+  return out.join('\n')
+}
+
+function buildMultiagentSkillsBlock(items) {
+  const installed = Array.isArray(items)
+    ? items.filter((item) => item?.status === 'installed')
+    : []
+  if (!installed.length) return ''
+
+  const skills = []
+  for (const item of installed) {
+    const list = Array.isArray(item?.publishedSkills) ? item.publishedSkills : []
+    for (const skill of list) {
+      const category = String(skill?.category || '').trim()
+      const name = String(skill?.name || '').trim()
+      if (category && name) {
+        skills.push(`${category}/${name}`)
+      } else if (name) {
+        skills.push(name)
+      }
+    }
+  }
+  const deduped = [...new Set(skills)].sort((a, b) => a.localeCompare(b))
+  if (!deduped.length) return ''
+
+  const lines = [
+    'multiagent_skills:',
+    `  generated_at: ${Date.now()}`,
+    '  installed:',
+  ]
+  for (const skillName of deduped) {
+    lines.push(`    - ${yamlScalar(skillName)}`)
+  }
+  return `${lines.join('\n')}\n`
+}
+
+async function syncSkillsManifestToHermesConfig(agentId, list) {
+  let existing = ''
+  try {
+    existing = await readHermesConfig(agentId)
+  } catch (_) {
+    existing = ''
+  }
+  const contentWithoutBlock = stripTopLevelBlock(existing, 'multiagent_skills').trimEnd()
+  const nextBlock = buildMultiagentSkillsBlock(list)
+  const merged = nextBlock
+    ? `${contentWithoutBlock}${contentWithoutBlock ? '\n\n' : ''}${nextBlock}`.replace(/\n*$/, '\n')
+    : `${contentWithoutBlock}\n`
+  await writeHermesConfigRaw(agentId, merged)
 }
 
 function defaultCategoryFromSource(source) {
@@ -198,6 +276,7 @@ export async function listSkills(agentId) {
       // 忽略修复失败，避免影响列表读取
     }
   }
+  await syncSkillsManifestToHermesConfig(agentId, list)
   return list.map(toPublic)
 }
 
@@ -228,6 +307,7 @@ export async function installSkill(agentId, body) {
   const list = await readSkillsList(agentId)
   list.push(entry)
   await writeSkillsList(agentId, list)
+  await syncSkillsManifestToHermesConfig(agentId, list)
 
   try {
     if (sourceType === 'git') {
@@ -266,6 +346,7 @@ export async function installSkill(agentId, body) {
     if (failedIndex >= 0) {
       failedList[failedIndex] = entry
       await writeSkillsList(agentId, failedList)
+      await syncSkillsManifestToHermesConfig(agentId, failedList)
     }
     throw err
   }
@@ -276,6 +357,7 @@ export async function installSkill(agentId, body) {
   if (successIndex >= 0) {
     successList[successIndex] = entry
     await writeSkillsList(agentId, successList)
+    await syncSkillsManifestToHermesConfig(agentId, successList)
   }
   return toPublic(entry)
 }
@@ -286,6 +368,7 @@ export async function deleteSkill(agentId, skillId) {
   if (index < 0) return false
   const [entry] = list.splice(index, 1)
   await writeSkillsList(agentId, list)
+  await syncSkillsManifestToHermesConfig(agentId, list)
   const { containerName } = await ensureContainerObject(agentId)
   if (Array.isArray(entry.publishedSkills)) {
     for (const skill of entry.publishedSkills) {

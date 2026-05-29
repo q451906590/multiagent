@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import { Handle, Position } from '@vue-flow/core'
+import { toAuthedUrl } from '../../../api/http.js'
 
 const props = defineProps({
   data: { type: Object, default: () => ({}) },
@@ -14,6 +15,7 @@ const archive = computed(() =>
     : null
 )
 const downloadPath = computed(() => String(archive.value?.downloadPath || '').trim())
+const authedDownloadPath = computed(() => (downloadPath.value ? toAuthedUrl(downloadPath.value) : ''))
 const archiveName = computed(() => String(archive.value?.archiveName || 'workflow-result.zip').trim() || 'workflow-result.zip')
 const statusClass = computed(() => {
   const status = String(props.data?.runStatus || '').trim().toLowerCase()
@@ -33,7 +35,7 @@ const canDownload = computed(() => statusClass.value === 'status-succeeded' && B
     <a
       v-if="canDownload"
       class="download-link"
-      :href="downloadPath"
+      :href="authedDownloadPath"
       target="_blank"
       rel="noopener noreferrer"
       @click.stop

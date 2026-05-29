@@ -6,6 +6,7 @@ import NodePalette from '../../components/workflow/NodePalette.vue'
 import NodeInspector from '../../components/workflow/NodeInspector.vue'
 import { useWorkflow } from '../../composables/useWorkflow.js'
 import { useAgents } from '../../composables/useAgents.js'
+import { toAuthedUrl } from '../../api/http.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -33,6 +34,7 @@ const selectedNodeId = ref('')
 const runInputText = ref('{}')
 const pollTimer = ref(null)
 const pollInFlight = ref(false)
+const poll500FailedNodeIds = ref(new Set())
 const POLL_INTERVAL_MS = 2500
 
 const selectedNode = computed(() =>
@@ -72,14 +74,25 @@ const nodeRunStatusMap = computed(() => {
   return map
 })
 
+const runningNodeIds = computed(() => {
+  const ids = []
+  for (const [nodeId, status] of nodeRunStatusMap.value.entries()) {
+    if (status === 'running') ids.push(nodeId)
+  }
+  return ids
+})
+
 const displayNodes = computed(() => {
   const map = nodeRunStatusMap.value
+  const failedByPoll500 = poll500FailedNodeIds.value
   const runArchive = state.lastRun?.output?.resultArchive && typeof state.lastRun.output.resultArchive === 'object'
     ? state.lastRun.output.resultArchive
     : null
   return state.nodes.map((node) => {
     const nodeId = String(node?.id || '').trim()
-    const runStatus = String(map.get(nodeId) || '')
+    let runStatus = String(map.get(nodeId) || '')
+    if (!runStatus && failedByPoll500.has(nodeId)) runStatus = 'failed'
+    if (runStatus === 'running' && failedByPoll500.has(nodeId)) runStatus = 'failed'
     const data = node?.data && typeof node.data === 'object' ? { ...node.data } : {}
     if (runStatus) data.runStatus = runStatus
     if (String(node?.type || '').trim() === 'result' && runStatus === 'succeeded' && runArchive?.downloadPath) {
@@ -108,6 +121,27 @@ const displayNodes = computed(() => {
     }
   })
 })
+
+const runResultDownloadPath = computed(() => {
+  const rawPath = String(state.lastRun?.output?.resultArchive?.downloadPath || '').trim()
+  if (!rawPath) return ''
+  return toAuthedUrl(rawPath)
+})
+
+const nodeLogs = computed(() =>
+  Array.isArray(state.lastRun?.nodeLogs) ? state.lastRun.nodeLogs : []
+)
+const nodeLogCount = computed(() => nodeLogs.value.length)
+
+function formatLogValue(value) {
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'string') return value
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch (_) {
+    return String(value)
+  }
+}
 
 function handleCanvasNodesUpdate(nodes) {
   patchNodesFromCanvas(nodes)
@@ -195,12 +229,25 @@ async function handlePause() {
 }
 
 async function handleRun() {
+  poll500FailedNodeIds.value = new Set()
   if (state.draftDirty && !window.confirm('当前有未保存草稿。运行将基于已保存版本，是否继续？')) return
   let input = {}
   try {
     input = JSON.parse(String(runInputText.value || '{}'))
   } catch (_) {
     input = {}
+  }
+  const startNode = state.nodes.find((item) => String(item?.type || '').trim() === 'start.userInput')
+  const startData = startNode?.data && typeof startNode.data === 'object' ? startNode.data : {}
+  input.__workflowStartInput = {
+    text: String(startData.startInputText || ''),
+    uploadId: String(startData.startInputUploadId || ''),
+    uploadedFiles: Array.isArray(startData.startInputUploadedFiles)
+      ? startData.startInputUploadedFiles.map((item) => ({
+        path: String(item?.path || ''),
+        name: String(item?.name || ''),
+      }))
+      : [],
   }
   const run = await runCurrentWorkflow(input)
   await refreshWorkflowRun(run?.id)
@@ -224,6 +271,16 @@ async function pollRunStatus(runId) {
   pollInFlight.value = true
   try {
     await refreshWorkflowRun(target)
+    if (poll500FailedNodeIds.value.size) {
+      poll500FailedNodeIds.value = new Set()
+    }
+  } catch (err) {
+    if (Number(err?.status) === 500) {
+      stopPollingRunStatus()
+      poll500FailedNodeIds.value = new Set(runningNodeIds.value)
+      return
+    }
+    state.error = err?.message || String(err)
   } finally {
     pollInFlight.value = false
   }
@@ -232,6 +289,7 @@ async function pollRunStatus(runId) {
 function startPollingRunStatus(runId) {
   const target = String(runId || '').trim()
   if (!target) return
+  poll500FailedNodeIds.value = new Set()
   stopPollingRunStatus()
   pollTimer.value = setInterval(() => {
     pollRunStatus(target)
@@ -314,7 +372,7 @@ onBeforeUnmount(() => {
 
       <div class="floating-actions">
         <button class="btn" :disabled="state.saving" @click="handleSave">保存</button>
-        <button class="btn" @click="handlePublish">发布</button>
+        <button class="btn" @click="handlePublish">发布到 n8n</button>
         <button class="btn" @click="handleActivate">激活</button>
         <button class="btn" @click="handlePause">停用</button>
         <button class="btn primary" :disabled="state.running" @click="handleRun">
@@ -330,10 +388,39 @@ onBeforeUnmount(() => {
         <a
           v-if="state.lastRun?.output?.resultArchive?.downloadPath"
           class="run-download"
-          :href="state.lastRun.output.resultArchive.downloadPath"
+          :href="runResultDownloadPath"
         >
           下载结果压缩包（{{ state.lastRun.output.resultArchive.archiveName || 'result.zip' }}）
         </a>
+        <div v-if="nodeLogs.length" class="node-log-list">
+          <div class="node-log-caption">节点日志（{{ nodeLogCount }}）</div>
+          <details
+            v-for="item in nodeLogs"
+            :key="item.nodeId"
+            class="node-log-item"
+          >
+            <summary class="node-log-head">
+              <strong>{{ item.nodeId }}</strong>
+              <span :class="['node-log-status', `is-${String(item.status || 'unknown').toLowerCase()}`]">
+                {{ item.status || 'unknown' }}
+              </span>
+            </summary>
+            <div class="node-log-content">
+              <div class="node-log-section">
+                <span>节点输入</span>
+                <pre>{{ formatLogValue(item.input) }}</pre>
+              </div>
+              <div class="node-log-section">
+                <span>节点输出</span>
+                <pre>{{ formatLogValue(item.output) }}</pre>
+              </div>
+              <div v-if="item.agentConversation" class="node-log-section">
+                <span>Agent 对话</span>
+                <pre>{{ formatLogValue(item.agentConversation) }}</pre>
+              </div>
+            </div>
+          </details>
+        </div>
       </div>
 
       <div class="floating-palette">
@@ -420,6 +507,102 @@ onBeforeUnmount(() => {
   padding: 8px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
+}
+
+.node-log-list {
+  margin-top: 6px;
+  display: grid;
+  gap: 8px;
+  max-height: 280px;
+  overflow: auto;
+}
+
+.node-log-caption {
+  font-size: 12px;
+  color: var(--kd-text-muted);
+}
+
+.node-log-item {
+  border: 1px solid var(--kd-line);
+  border-radius: 8px;
+  padding: 4px 8px 8px;
+  background: #fff;
+}
+
+.node-log-head {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  user-select: none;
+}
+
+.node-log-head::-webkit-details-marker {
+  display: none;
+}
+
+.node-log-content {
+  display: grid;
+  gap: 6px;
+  padding-top: 6px;
+}
+
+.node-log-status {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  border-radius: 999px;
+  padding: 0 8px;
+  font-size: 11px;
+  border: 1px solid var(--kd-line);
+}
+
+.node-log-status.is-running,
+.node-log-status.is-queued {
+  color: #1677ff;
+  border-color: rgba(22, 119, 255, 0.3);
+  background: rgba(22, 119, 255, 0.08);
+}
+
+.node-log-status.is-succeeded,
+.node-log-status.is-success {
+  color: #389e0d;
+  border-color: rgba(82, 196, 26, 0.35);
+  background: rgba(82, 196, 26, 0.1);
+}
+
+.node-log-status.is-failed,
+.node-log-status.is-error {
+  color: #be2d33;
+  border-color: rgba(190, 45, 51, 0.35);
+  background: rgba(190, 45, 51, 0.1);
+}
+
+.node-log-section {
+  display: grid;
+  gap: 4px;
+}
+
+.node-log-section > span {
+  font-size: 12px;
+  color: var(--kd-text-muted);
+}
+
+.node-log-section pre {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  max-height: 140px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border: 1px solid var(--kd-line);
+  border-radius: 6px;
+  padding: 6px;
+  background: #fafbfc;
 }
 
 .run-download {

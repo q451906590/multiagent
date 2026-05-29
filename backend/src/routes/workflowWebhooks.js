@@ -9,6 +9,8 @@ import {
   markWorkflowRunFailed,
 } from '../services/workflowExecutionService.js'
 import { isWorkflowTerminalNode, resolveAgentNodeExecutionPlan } from '../services/workflowService.js'
+import { deliverWorkflowStartInputsToAgent, START_NODE_TYPE } from '../services/workflowInputService.js'
+import { resolveWorkflowDeliverablesDir } from '../services/sessionPathService.js'
 
 const router = Router()
 
@@ -41,9 +43,13 @@ router.post('/agent-node', async (req, res) => {
     const workflowId = String(payload.workflowId || '').trim()
     const nodeId = String(payload.nodeId || '').trim()
     const runId = String(payload.runId || '').trim()
+    if (!runId) {
+      throw new Error('runId is required')
+    }
     const fallbackPrompt = String(payload?.input?.prompt || '').trim()
 
     const plan = resolveAgentNodeExecutionPlan({ workflowId, userId, nodeId })
+    const basePrompt = String(payload.prompt || '').trim() || plan.prompt || fallbackPrompt
 
     const recordEvent = ({ eventType, eventStatus = '', payload: eventPayload = {}, errorMessage = '' }) => {
       if (!runId || !userId) return
@@ -69,14 +75,35 @@ router.post('/agent-node', async (req, res) => {
         inputDeliverables: plan.inputDeliverables,
       },
     })
+    recordEvent({
+      eventType: 'node_input',
+      eventStatus: 'running',
+      payload: {
+        nodeInput: payload?.input && typeof payload.input === 'object' ? payload.input : {},
+        prompt: basePrompt,
+        uploadedFiles: payload.uploadedFiles || plan.uploadedFiles || [],
+      },
+    })
 
     const preDeliveries = []
     for (const delivery of plan.preDeliveries) {
-      const copied = await deliverAgentNodeFiles({
-        fromAgentId: delivery.fromAgentId,
-        toAgentId: delivery.toAgentId,
-        files: delivery.files,
-      })
+      let copied = { delivered: [], failed: [] }
+      if (String(delivery?.fromNodeType || '').trim() === START_NODE_TYPE) {
+        copied = await deliverWorkflowStartInputsToAgent({
+          runId,
+          userId,
+          toAgentId: delivery.toAgentId,
+          startInput: payload?.input?.__workflowStartInput,
+          requestedFiles: delivery.files,
+        })
+      } else {
+        copied = await deliverAgentNodeFiles({
+          runId,
+          fromAgentId: delivery.fromAgentId,
+          toAgentId: delivery.toAgentId,
+          files: delivery.files,
+        })
+      }
       preDeliveries.push({
         ...delivery,
         copied,
@@ -86,12 +113,30 @@ router.post('/agent-node', async (req, res) => {
     const receivedFiles = preDeliveries
       .flatMap((item) => item.copied?.delivered || [])
       .map((path) => `${config.receivedDirInContainer}/${path}`)
+    recordEvent({
+      eventType: 'node_input_resolved',
+      eventStatus: 'running',
+      payload: {
+        nodeInput: payload?.input && typeof payload.input === 'object' ? payload.input : {},
+        prompt: basePrompt,
+        receivedFiles,
+        preDeliveries: preDeliveries.map((item) => ({
+          fromNodeId: item.fromNodeId,
+          fromNodeType: item.fromNodeType || '',
+          fromAgentId: item.fromAgentId || '',
+          toNodeId: item.toNodeId,
+          toAgentId: item.toAgentId,
+          delivered: item.copied?.delivered || [],
+          failed: item.copied?.failed || [],
+        })),
+      },
+    })
 
     const validateDeliverables = async () => {
       const expected = plan.deliverFiles || []
       if (!expected.length) return { ok: true, missing: [], actual: [] }
       const files = await listAgentFiles(plan.agentId, {
-        rootDir: config.deliveryDirInContainer,
+        rootDir: resolveWorkflowDeliverablesDir(runId, plan.agentId),
         maxFiles: 5000,
       })
       const actual = files.map((file) => String(file.path || '').trim()).filter(Boolean)
@@ -100,7 +145,6 @@ router.post('/agent-node', async (req, res) => {
       return { ok: missing.length === 0, missing, actual }
     }
 
-    const basePrompt = String(payload.prompt || '').trim() || plan.prompt || fallbackPrompt
     if (!basePrompt) {
       throw new Error('prompt is required')
     }
@@ -108,6 +152,7 @@ router.post('/agent-node', async (req, res) => {
     let result = await executeAgentNode({
       userId,
       agentId: plan.agentId,
+      runId,
       prompt: basePrompt,
       uploadedFiles: payload.uploadedFiles || plan.uploadedFiles,
       receivedFiles,
@@ -130,6 +175,7 @@ router.post('/agent-node', async (req, res) => {
       result = await executeAgentNode({
         userId,
         agentId: plan.agentId,
+        runId,
         prompt: basePrompt,
         uploadedFiles: payload.uploadedFiles || plan.uploadedFiles,
         receivedFiles,
@@ -163,6 +209,7 @@ router.post('/agent-node', async (req, res) => {
     const postDeliveries = []
     for (const delivery of plan.postDeliveries) {
       const copied = await deliverAgentNodeFiles({
+        runId,
         fromAgentId: delivery.fromAgentId,
         toAgentId: delivery.toAgentId,
         files: delivery.files,
@@ -178,6 +225,7 @@ router.post('/agent-node', async (req, res) => {
       eventStatus: 'succeeded',
       payload: {
         preDeliveries: preDeliveries.map((item) => ({
+          fromNodeType: item.fromNodeType || '',
           fromAgentId: item.fromAgentId,
           toAgentId: item.toAgentId,
           delivered: item.copied?.delivered || [],
@@ -189,6 +237,27 @@ router.post('/agent-node', async (req, res) => {
           delivered: item.copied?.delivered || [],
           failed: item.copied?.failed || [],
         })),
+      },
+    })
+    recordEvent({
+      eventType: 'node_output',
+      eventStatus: 'succeeded',
+      payload: {
+        nodeOutput: {
+          output: result.output,
+          stderr: result.stderr || '',
+          expectedDeliverables: plan.deliverFiles,
+          postDeliveries: postDeliveries.map((item) => ({
+            toNodeId: item.toNodeId,
+            toAgentId: item.toAgentId,
+            delivered: item.copied?.delivered || [],
+            failed: item.copied?.failed || [],
+          })),
+        },
+        agentConversation: {
+          requestMessage: result.requestMessage || '',
+          messages: Array.isArray(result.conversation) ? result.conversation : [],
+        },
       },
     })
 
@@ -261,7 +330,12 @@ router.post('/result-node', async (req, res) => {
       nodeId,
       eventType: 'result_archive_prepare',
       eventStatus: 'running',
-      payload: {},
+      payload: {
+        nodeInput: {
+          archiveName: String(payload.archiveName || ''),
+          resultDeliverables: Array.isArray(payload.resultDeliverables) ? payload.resultDeliverables : [],
+        },
+      },
     })
 
     const archive = await buildResultArchive({
@@ -279,6 +353,12 @@ router.post('/result-node', async (req, res) => {
       eventType: 'result_archive_ready',
       eventStatus: 'succeeded',
       payload: {
+        nodeOutput: {
+          archiveName: archive.archiveName,
+          downloadPath: archive.downloadPath,
+          included: archive.included,
+          missing: archive.missing,
+        },
         downloadPath: archive.downloadPath,
         archiveName: archive.archiveName,
         includedCount: archive.included.length,

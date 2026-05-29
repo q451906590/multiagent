@@ -161,7 +161,48 @@ export function getDb() {
       updated_at          INTEGER NOT NULL
     );
   `)
+  const workflowColumns = db.prepare('PRAGMA table_info(workflows)').all()
+  if (!workflowColumns.some((col) => col?.name === 'source_template_id')) {
+    db.exec('ALTER TABLE workflows ADD COLUMN source_template_id TEXT')
+  }
+  if (!workflowColumns.some((col) => col?.name === 'source_template_version')) {
+    db.exec('ALTER TABLE workflows ADD COLUMN source_template_version TEXT')
+  }
   db.exec('CREATE INDEX IF NOT EXISTS idx_workflows_user_id_updated_at ON workflows(user_id, updated_at DESC)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_workflows_source_template_id ON workflows(source_template_id)')
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS workflow_templates (
+      id                    TEXT PRIMARY KEY,
+      publisher_user_id     TEXT NOT NULL,
+      source_workflow_id    TEXT NOT NULL,
+      title                 TEXT NOT NULL,
+      slug                  TEXT NOT NULL UNIQUE,
+      description           TEXT,
+      canvas_definition     TEXT NOT NULL,
+      agent_dependencies_json TEXT,
+      tags_json             TEXT,
+      visibility            TEXT NOT NULL DEFAULT 'public',
+      status                TEXT NOT NULL DEFAULT 'published',
+      install_count         INTEGER NOT NULL DEFAULT 0,
+      created_at            INTEGER NOT NULL,
+      updated_at            INTEGER NOT NULL
+    );
+  `)
+  db.exec('CREATE INDEX IF NOT EXISTS idx_workflow_templates_publisher ON workflow_templates(publisher_user_id, created_at DESC)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_workflow_templates_status_visibility ON workflow_templates(status, visibility, created_at DESC)')
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS workflow_installations (
+      id                    TEXT PRIMARY KEY,
+      template_id           TEXT NOT NULL,
+      user_id               TEXT NOT NULL,
+      workflow_id           TEXT NOT NULL,
+      installed_version     TEXT,
+      created_at            INTEGER NOT NULL
+    );
+  `)
+  db.exec('CREATE INDEX IF NOT EXISTS idx_workflow_installations_template ON workflow_installations(template_id, created_at DESC)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_workflow_installations_user ON workflow_installations(user_id, created_at DESC)')
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_workflow_installations_template_user_workflow ON workflow_installations(template_id, user_id, workflow_id)')
   db.exec(`
     CREATE TABLE IF NOT EXISTS workflow_runs (
       id                  TEXT PRIMARY KEY,
@@ -697,6 +738,225 @@ export function listImportedAgentsByUser(userId) {
   }))
 }
 
+function rowToWorkflowTemplate(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    publisherUserId: row.publisher_user_id,
+    publisherUsername: row.publisher_username || '',
+    sourceWorkflowId: row.source_workflow_id,
+    title: row.title,
+    slug: row.slug,
+    description: row.description || '',
+    canvasDefinition: parseJsonObject(row.canvas_definition) || { nodes: [], edges: [] },
+    agentDependencies: parseJsonArray(row.agent_dependencies_json),
+    tagIds: parseJsonArray(row.tags_json),
+    visibility: row.visibility || 'public',
+    status: row.status || 'published',
+    installCount: Number(row.install_count || 0),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+export function listPublicWorkflowTemplates() {
+  const rows = getDb()
+    .prepare(
+      `SELECT t.*, u.username AS publisher_username
+       FROM workflow_templates t
+       LEFT JOIN users u ON u.id = t.publisher_user_id
+       WHERE t.status = 'published' AND t.visibility = 'public'
+       ORDER BY t.created_at DESC`
+    )
+    .all()
+  return rows.map(rowToWorkflowTemplate)
+}
+
+export function getWorkflowTemplateById(id) {
+  const row = getDb()
+    .prepare(
+      `SELECT t.*, u.username AS publisher_username
+       FROM workflow_templates t
+       LEFT JOIN users u ON u.id = t.publisher_user_id
+       WHERE t.id = ?`
+    )
+    .get(id)
+  return rowToWorkflowTemplate(row)
+}
+
+export function getWorkflowTemplateBySourceWorkflow(sourceWorkflowId, publisherUserId) {
+  const uid = normalizeUserId(publisherUserId)
+  const row = getDb()
+    .prepare(
+      `SELECT t.*, u.username AS publisher_username
+       FROM workflow_templates t
+       LEFT JOIN users u ON u.id = t.publisher_user_id
+       WHERE t.source_workflow_id = ? AND t.publisher_user_id = ?`
+    )
+    .get(sourceWorkflowId, uid)
+  return rowToWorkflowTemplate(row)
+}
+
+export function insertWorkflowTemplate(template) {
+  const uid = normalizeUserId(template.publisherUserId)
+  getDb()
+    .prepare(
+      `INSERT INTO workflow_templates (
+        id, publisher_user_id, source_workflow_id, title, slug, description, canvas_definition,
+        agent_dependencies_json, tags_json, visibility, status, install_count, created_at, updated_at
+      ) VALUES (
+        @id, @publisher_user_id, @source_workflow_id, @title, @slug, @description, @canvas_definition,
+        @agent_dependencies_json, @tags_json, @visibility, @status, @install_count, @created_at, @updated_at
+      )`
+    )
+    .run({
+      id: template.id,
+      publisher_user_id: uid,
+      source_workflow_id: template.sourceWorkflowId,
+      title: template.title,
+      slug: template.slug,
+      description: template.description || null,
+      canvas_definition: JSON.stringify(template.canvasDefinition || { nodes: [], edges: [] }),
+      agent_dependencies_json: JSON.stringify(template.agentDependencies || []),
+      tags_json: JSON.stringify(template.tagIds || []),
+      visibility: template.visibility || 'public',
+      status: template.status || 'published',
+      install_count: Number(template.installCount || 0),
+      created_at: template.createdAt,
+      updated_at: template.updatedAt,
+    })
+}
+
+export function updateWorkflowTemplate(id, fields, publisherUserId) {
+  const uid = normalizeUserId(publisherUserId)
+  const map = {
+    title: 'title',
+    slug: 'slug',
+    description: 'description',
+    canvasDefinition: 'canvas_definition',
+    agentDependencies: 'agent_dependencies_json',
+    tagIds: 'tags_json',
+    visibility: 'visibility',
+    status: 'status',
+    installCount: 'install_count',
+    updatedAt: 'updated_at',
+  }
+  const sets = []
+  const params = { id, publisher_user_id: uid }
+  for (const [k, v] of Object.entries(fields || {})) {
+    const col = map[k]
+    if (!col) continue
+    sets.push(`${col} = @${col}`)
+    if (['canvas_definition', 'agent_dependencies_json', 'tags_json'].includes(col)) {
+      if (col === 'canvas_definition') {
+        params[col] = JSON.stringify(v || { nodes: [], edges: [] })
+      } else {
+        params[col] = JSON.stringify(v || [])
+      }
+    } else {
+      params[col] = v
+    }
+  }
+  if (!sets.length) return
+  getDb()
+    .prepare(
+      `UPDATE workflow_templates
+       SET ${sets.join(', ')}
+       WHERE id = @id AND publisher_user_id = @publisher_user_id`
+    )
+    .run(params)
+}
+
+export function bumpWorkflowTemplateInstallCount(templateId) {
+  getDb()
+    .prepare(
+      `UPDATE workflow_templates
+       SET install_count = COALESCE(install_count, 0) + 1, updated_at = @updated_at
+       WHERE id = @id`
+    )
+    .run({ id: templateId, updated_at: Date.now() })
+}
+
+function rowToWorkflowInstallation(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    templateId: row.template_id,
+    userId: row.user_id,
+    workflowId: row.workflow_id,
+    installedVersion: row.installed_version || '',
+    createdAt: row.created_at,
+  }
+}
+
+export function insertWorkflowInstallation(installation) {
+  const uid = normalizeUserId(installation.userId)
+  getDb()
+    .prepare(
+      `INSERT INTO workflow_installations
+       (id, template_id, user_id, workflow_id, installed_version, created_at)
+       VALUES (@id, @template_id, @user_id, @workflow_id, @installed_version, @created_at)`
+    )
+    .run({
+      id: installation.id,
+      template_id: installation.templateId,
+      user_id: uid,
+      workflow_id: installation.workflowId,
+      installed_version: installation.installedVersion || null,
+      created_at: installation.createdAt,
+    })
+}
+
+export function listWorkflowInstallationsByUser(userId) {
+  const uid = normalizeUserId(userId)
+  const rows = getDb()
+    .prepare(
+      `SELECT *
+       FROM workflow_installations
+       WHERE user_id = ?
+       ORDER BY created_at DESC`
+    )
+    .all(uid)
+  return rows.map(rowToWorkflowInstallation)
+}
+
+export function listImportedWorkflowsByUser(userId) {
+  const uid = normalizeUserId(userId)
+  const rows = getDb()
+    .prepare(
+      `SELECT
+        i.id AS installation_id,
+        i.template_id,
+        i.workflow_id,
+        i.installed_version,
+        i.created_at AS installed_at,
+        w.name AS workflow_name,
+        w.publish_status AS workflow_status,
+        t.title AS template_title,
+        t.tags_json AS template_tags_json,
+        u.username AS publisher_username
+      FROM workflow_installations i
+      INNER JOIN workflows w ON w.id = i.workflow_id
+      LEFT JOIN workflow_templates t ON t.id = i.template_id
+      LEFT JOIN users u ON u.id = t.publisher_user_id
+      WHERE i.user_id = @user_id
+      ORDER BY i.created_at DESC`
+    )
+    .all({ user_id: uid })
+  return rows.map((row) => ({
+    id: row.installation_id,
+    templateId: row.template_id,
+    workflowId: row.workflow_id,
+    installedVersion: row.installed_version || '',
+    installedAt: row.installed_at,
+    workflowName: row.workflow_name || '',
+    workflowStatus: row.workflow_status || '',
+    templateTitle: row.template_title || '',
+    publisherUsername: row.publisher_username || '',
+    tagIds: parseJsonArray(row.template_tags_json),
+  }))
+}
+
 function rowToDelegationKey(row) {
   if (!row) return null
   return {
@@ -847,6 +1107,8 @@ function rowToWorkflow(row) {
     canvasDefinition: parseJsonObject(row.canvas_definition) || { nodes: [], edges: [] },
     n8nDefinition: parseJsonObject(row.n8n_definition),
     n8nWorkflowId: row.n8n_workflow_id || '',
+    sourceTemplateId: row.source_template_id || '',
+    sourceTemplateVersion: row.source_template_version || '',
     publishStatus: row.publish_status || 'draft',
     version: Number(row.version || 1),
     createdAt: row.created_at,
@@ -914,10 +1176,10 @@ export function insertWorkflow(workflow) {
     .prepare(
       `INSERT INTO workflows (
         id, user_id, name, description, canvas_definition, n8n_definition, n8n_workflow_id,
-        publish_status, version, created_at, updated_at
+        source_template_id, source_template_version, publish_status, version, created_at, updated_at
       ) VALUES (
         @id, @user_id, @name, @description, @canvas_definition, @n8n_definition, @n8n_workflow_id,
-        @publish_status, @version, @created_at, @updated_at
+        @source_template_id, @source_template_version, @publish_status, @version, @created_at, @updated_at
       )`
     )
     .run({
@@ -928,6 +1190,8 @@ export function insertWorkflow(workflow) {
       canvas_definition: JSON.stringify(workflow.canvasDefinition || { nodes: [], edges: [] }),
       n8n_definition: workflow.n8nDefinition ? JSON.stringify(workflow.n8nDefinition) : null,
       n8n_workflow_id: workflow.n8nWorkflowId || null,
+      source_template_id: workflow.sourceTemplateId || null,
+      source_template_version: workflow.sourceTemplateVersion || null,
       publish_status: workflow.publishStatus || 'draft',
       version: Number(workflow.version || 1),
       created_at: workflow.createdAt,
@@ -943,6 +1207,8 @@ export function updateWorkflow(id, userId, fields) {
     canvasDefinition: 'canvas_definition',
     n8nDefinition: 'n8n_definition',
     n8nWorkflowId: 'n8n_workflow_id',
+    sourceTemplateId: 'source_template_id',
+    sourceTemplateVersion: 'source_template_version',
     publishStatus: 'publish_status',
     version: 'version',
     updatedAt: 'updated_at',

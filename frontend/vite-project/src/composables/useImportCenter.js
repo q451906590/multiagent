@@ -1,8 +1,9 @@
 import { reactive } from 'vue'
-import { listImportedAgents } from '../api/importCenter.js'
+import { listImportedAgents, listImportedWorkflows } from '../api/importCenter.js'
 
 const state = reactive({
-  items: [],
+  agentItems: [],
+  workflowItems: [],
   loading: false,
   loaded: false,
   error: null,
@@ -17,10 +18,17 @@ async function loadImports(force = false) {
     state.loading = true
     state.error = null
     try {
-      const list = await listImportedAgents()
-      state.items.splice(0, state.items.length, ...(Array.isArray(list) ? list : []))
+      const [agents, workflows] = await Promise.all([
+        listImportedAgents(),
+        listImportedWorkflows(),
+      ])
+      state.agentItems.splice(0, state.agentItems.length, ...(Array.isArray(agents) ? agents : []))
+      state.workflowItems.splice(0, state.workflowItems.length, ...(Array.isArray(workflows) ? workflows : []))
       state.loaded = true
-      return state.items
+      return {
+        agentItems: state.agentItems,
+        workflowItems: state.workflowItems,
+      }
     } catch (err) {
       state.error = err?.message || String(err)
       throw err

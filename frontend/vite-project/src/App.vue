@@ -51,6 +51,7 @@ function handleSidebarNavigate(item) {
     importCenter: { name: 'import-center' },
     marketplace: { name: 'marketplace' },
     workflowBuilder: { name: 'workflow-list' },
+    workflowMarketplace: { name: 'workflow-marketplace' },
   }
   const target = routeMap[key] || { name: 'agents' }
   router.push(target)

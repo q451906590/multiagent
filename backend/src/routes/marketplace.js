@@ -10,6 +10,12 @@ import {
   removeMarketplaceTag,
   updateMarketplaceTagName,
 } from '../services/marketplaceService.js'
+import {
+  getWorkflowMarketplaceTemplateDetail,
+  installWorkflowTemplateToUser,
+  listWorkflowMarketplaceTemplates,
+  publishFromWorkflow,
+} from '../services/workflowMarketplaceService.js'
 import { ImageBuildInProgressError } from '../services/hermes.js'
 
 const router = Router()
@@ -97,6 +103,59 @@ router.delete('/tags/:id', authUser, (req, res) => {
 router.post('/agents/:id/install', authUser, async (req, res) => {
   try {
     const result = await installTemplateToUser({
+      templateId: req.params.id,
+      userId: req.user.id,
+    })
+    res.status(201).json(result)
+  } catch (err) {
+    if (err instanceof ImageBuildInProgressError || err?.code === 'IMAGE_BUILD_IN_PROGRESS') {
+      return res.status(409).json({ error: 'image_build_in_progress' })
+    }
+    if (err?.status) {
+      return res.status(err.status).json({ error: err.message || 'install_failed' })
+    }
+    res.status(500).json({ error: err?.message || 'install_failed' })
+  }
+})
+
+router.get('/workflows', (_req, res) => {
+  const tags = String(_req.query.tags || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+  res.json(listWorkflowMarketplaceTemplates({ tagIds: tags }))
+})
+
+router.get('/workflows/:id', (req, res) => {
+  const detail = getWorkflowMarketplaceTemplateDetail(req.params.id)
+  if (!detail) return res.status(404).json({ error: 'not_found' })
+  res.json(detail)
+})
+
+router.post('/workflows', authUser, async (req, res) => {
+  try {
+    const body = req.body || {}
+    const workflowId = String(body.workflowId || '').trim()
+    if (!workflowId) return res.status(400).json({ error: 'workflowId is required' })
+    const result = await publishFromWorkflow({
+      workflowId,
+      userId: req.user.id,
+      title: body.title,
+      description: body.description,
+      tags: body.tags,
+    })
+    res.status(201).json(result)
+  } catch (err) {
+    if (err?.status) {
+      return res.status(err.status).json({ error: err.message || 'publish_failed' })
+    }
+    res.status(500).json({ error: err?.message || 'publish_failed' })
+  }
+})
+
+router.post('/workflows/:id/install', authUser, async (req, res) => {
+  try {
+    const result = await installWorkflowTemplateToUser({
       templateId: req.params.id,
       userId: req.user.id,
     })

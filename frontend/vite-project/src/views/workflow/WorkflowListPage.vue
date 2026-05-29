@@ -1,7 +1,9 @@
 <script setup>
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useWorkflow } from '../../composables/useWorkflow.js'
+import { useWorkflowMarketplace } from '../../composables/useWorkflowMarketplace.js'
+import PublishWorkflowDialog from '../../components/workflow/PublishWorkflowDialog.vue'
 
 const router = useRouter()
 const {
@@ -10,6 +12,8 @@ const {
   createNewWorkflow,
   removeWorkflow,
 } = useWorkflow()
+const { state: marketplaceState, loadTags, publishWorkflow } = useWorkflowMarketplace()
+const publishingWorkflow = ref(null)
 
 const workflows = computed(() => (Array.isArray(state.list) ? state.list : []))
 
@@ -39,6 +43,33 @@ async function deleteWorkflow(id) {
   await removeWorkflow(workflowId)
 }
 
+function openWorkflowMarketplace() {
+  router.push({ name: 'workflow-marketplace' })
+}
+
+function handlePublish(item) {
+  if (item?.sourceTemplateId) {
+    window.alert('该工作流来自市集，不能再次发布。')
+    return
+  }
+  publishingWorkflow.value = item || null
+  loadTags().catch(() => {})
+}
+
+function closePublishDialog() {
+  publishingWorkflow.value = null
+}
+
+async function submitPublish(payload) {
+  try {
+    await publishWorkflow(payload)
+    closePublishDialog()
+    window.alert('发布成功，已同步到工作流市集。')
+  } catch (err) {
+    window.alert(`发布失败：${err?.message || err}`)
+  }
+}
+
 onMounted(() => {
   ensureLoaded()
 })
@@ -48,7 +79,10 @@ onMounted(() => {
   <section class="workflow-list-page">
     <header class="head">
       <h2>工作流管理</h2>
-      <button class="btn" @click="handleCreateWorkflow">新增工作流</button>
+      <div class="head-actions">
+        <button class="btn" @click="openWorkflowMarketplace">进入工作流市集</button>
+        <button class="btn" @click="handleCreateWorkflow">新增工作流</button>
+      </div>
     </header>
 
     <p v-if="state.error" class="error">加载失败：{{ state.error }}</p>
@@ -74,10 +108,19 @@ onMounted(() => {
         </div>
         <div class="actions">
           <button class="btn" @click="openWorkflow(item.id)">进入工作流</button>
+          <button class="btn" @click="handlePublish(item)">发布到市集</button>
           <button class="btn danger" @click="deleteWorkflow(item.id)">删除</button>
         </div>
       </article>
     </div>
+
+    <PublishWorkflowDialog
+      :open="Boolean(publishingWorkflow)"
+      :workflow="publishingWorkflow"
+      :tags="marketplaceState.tags"
+      @cancel="closePublishDialog"
+      @submit="submitPublish"
+    />
   </section>
 </template>
 
@@ -95,6 +138,11 @@ onMounted(() => {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 16px;
+}
+
+.head-actions {
+  display: flex;
+  gap: 8px;
 }
 
 h2 {

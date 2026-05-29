@@ -8,6 +8,7 @@ import {
 } from '../db.js'
 import { config } from '../config.js'
 import { deleteN8nWorkflow, setN8nWorkflowActive, upsertN8nWorkflow } from './n8nService.js'
+import { START_NODE_TYPE } from './workflowInputService.js'
 
 function now() {
   return Date.now()
@@ -22,6 +23,27 @@ function normalizeCanvasDefinition(input) {
   const nodes = Array.isArray(value.nodes) ? value.nodes : []
   const edges = Array.isArray(value.edges) ? value.edges : []
   return { nodes, edges }
+}
+
+export function sanitizeCanvasForMarketplace(input) {
+  const normalized = normalizeCanvasDefinition(input)
+  const next = JSON.parse(JSON.stringify(normalized))
+  const nodes = Array.isArray(next.nodes) ? next.nodes : []
+  for (const node of nodes) {
+    const data = node?.data && typeof node.data === 'object' ? { ...node.data } : {}
+    delete data.uploadedFiles
+    delete data.deliverFiles
+    delete data.inputDeliverables
+    delete data.resultDeliverables
+    delete data.resultArchive
+    delete data.startInputUploadedFiles
+    delete data.startInputUploadId
+    node.data = data
+  }
+  return {
+    nodes,
+    edges: Array.isArray(next.edges) ? next.edges : [],
+  }
 }
 
 function normalizeRelPath(inputPath) {
@@ -65,6 +87,15 @@ function normalizeInputDeliverables(input) {
 
 function normalizeResultDeliverables(input) {
   return normalizeInputDeliverables(input)
+}
+
+function isStartNodeType(nodeType) {
+  return String(nodeType || '').trim() === START_NODE_TYPE
+}
+
+function isAgentNodeType(nodeType) {
+  const value = String(nodeType || '').trim()
+  return value === 'agent' || value === 'agent.chat'
 }
 
 function normalizeBasicFields(payload) {
@@ -128,6 +159,31 @@ function toN8nNode(node) {
         sendBody: true,
         specifyBody: 'json',
         jsonBody,
+      },
+    }
+  }
+  if (isStartNodeType(nodeType)) {
+    const jsonBody = buildJsonBodyExpression([
+      `    "nodeId": ${JSON.stringify(nodeId)}`,
+      '    "runId": $json["runId"] || $json["runContext"]?.["runId"] || $json["body"]?.["runId"] || ""',
+      '    "userId": $json["userId"] || $json["runContext"]?.["userId"] || $json["body"]?.["userId"] || ""',
+      '    "workflowId": $json["workflowId"] || $json["runContext"]?.["workflowId"] || $json["body"]?.["workflowId"] || ""',
+      `    "__workflowStartInput": $json["input"]?.["__workflowStartInput"] || ${JSON.stringify({
+        text: '',
+        uploadId: '',
+        uploadedFiles: [],
+      })}`,
+    ])
+    return {
+      id: nodeId,
+      name: nodeLabel,
+      type: 'n8n-nodes-base.set',
+      typeVersion: 3.4,
+      position,
+      parameters: {
+        mode: 'raw',
+        jsonOutput: jsonBody,
+        options: {},
       },
     }
   }
@@ -200,7 +256,7 @@ export function resolveAgentNodeExecutionPlan({ workflowId, userId, nodeId }) {
   const nodeMap = getNodeMap(workflow)
   const currentNode = nodeMap.get(currentNodeId)
   if (!currentNode) throw new Error('workflow node not found')
-  if (String(currentNode?.type || '').trim() !== 'agent') throw new Error('node is not agent type')
+  if (!isAgentNodeType(currentNode?.type)) throw new Error('node is not agent type')
 
   const agentId = String(currentNode?.data?.agentId || '').trim()
   if (!agentId) throw new Error('agentId is required')
@@ -219,9 +275,21 @@ export function resolveAgentNodeExecutionPlan({ workflowId, userId, nodeId }) {
   for (const [sourceNodeId, files] of refsBySourceNode.entries()) {
     const sourceNode = nodeMap.get(sourceNodeId)
     const sourceAgentId = String(sourceNode?.data?.agentId || '').trim()
+    const sourceType = String(sourceNode?.type || '').trim()
+    if (isStartNodeType(sourceType)) {
+      preDeliveries.push({
+        fromNodeId: sourceNodeId,
+        fromNodeType: sourceType,
+        toNodeId: currentNodeId,
+        toAgentId: agentId,
+        files: normalizeDeliverFiles(files),
+      })
+      continue
+    }
     if (!sourceAgentId || sourceAgentId === agentId) continue
     preDeliveries.push({
       fromNodeId: sourceNodeId,
+      fromNodeType: sourceType,
       fromAgentId: sourceAgentId,
       toNodeId: currentNodeId,
       toAgentId: agentId,
@@ -236,7 +304,7 @@ export function resolveAgentNodeExecutionPlan({ workflowId, userId, nodeId }) {
     const target = String(edge?.target || '').trim()
     if (source !== currentNodeId || !target) continue
     const targetNode = nodeMap.get(target)
-    if (!targetNode || String(targetNode?.type || '').trim() !== 'agent') continue
+    if (!targetNode || !isAgentNodeType(targetNode?.type)) continue
     const targetAgentId = String(targetNode?.data?.agentId || '').trim()
     if (!targetAgentId || targetAgentId === agentId) continue
     const requestedRefs = normalizeInputDeliverables(targetNode?.data?.inputDeliverables)
@@ -291,10 +359,20 @@ export function resolveResultNodeExecutionPlan({ workflowId, userId, nodeId }) {
   const enriched = resultDeliverables
     .map((ref) => {
       const sourceNode = nodeMap.get(ref.sourceNodeId)
+      const sourceNodeType = String(sourceNode?.type || '').trim()
+      if (isStartNodeType(sourceNodeType)) {
+        return {
+          ...ref,
+          sourceNodeType,
+          sourceAgentId: '',
+          sourceNodeLabel: String(sourceNode?.label || sourceNode?.data?.label || ref.sourceNodeId),
+        }
+      }
       const sourceAgentId = String(ref.sourceAgentId || sourceNode?.data?.agentId || '').trim()
       if (!sourceAgentId) return null
       return {
         ...ref,
+        sourceNodeType,
         sourceAgentId,
         sourceNodeLabel: String(sourceNode?.label || sourceNode?.data?.label || ref.sourceNodeId),
       }

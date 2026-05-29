@@ -9,6 +9,8 @@ import ImportCenterPage from '../views/ImportCenterPage.vue'
 import DemoRoutePage from '../views/DemoRoutePage.vue'
 import WorkflowListPage from '../views/workflow/WorkflowListPage.vue'
 import WorkflowDetailPage from '../views/workflow/WorkflowDetailPage.vue'
+import WorkflowMarketplacePage from '../views/workflow/WorkflowMarketplacePage.vue'
+import WorkflowMarketplaceDetailPage from '../views/workflow/WorkflowMarketplaceDetailPage.vue'
 
 const routes = [
   { path: '/', redirect: '/agents' },
@@ -59,6 +61,18 @@ const routes = [
     name: 'workflow-list',
     component: WorkflowListPage,
     meta: { title: '工作流管理', navKey: 'workflowBuilder' },
+  },
+  {
+    path: '/workflow-marketplace',
+    name: 'workflow-marketplace',
+    component: WorkflowMarketplacePage,
+    meta: { title: '工作流市集', navKey: 'workflowMarketplace' },
+  },
+  {
+    path: '/workflow-marketplace/:templateId',
+    name: 'workflow-marketplace-detail',
+    component: WorkflowMarketplaceDetailPage,
+    meta: { title: '工作流模板详情', navKey: 'workflowMarketplace' },
   },
   {
     path: '/workflow/:workflowId',
